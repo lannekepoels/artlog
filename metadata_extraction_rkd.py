@@ -100,6 +100,120 @@ OBJECT_NAME_MAP = [
     (['album', 'portfolio'],                             'album'),
 ]
 
+# Genre → subject keyword classification term (Dutch RKD)
+GENRE_TO_SUBJECT_KW = {
+    'portrait':                  'portret',
+    'still life':                'stilleven',
+    'landscape (genre)':         'landschap',
+    'marine (genre)':            'marine',
+    'cityscape':                 'stadsgezicht',
+    'interior view':             'interieur',
+    'church interior':           'kerkinterieur',
+    'history (genre)':           'historie (genre)',
+    'genre':                     'genre',
+    'figure':                    'figuurstuk',
+    'animal painting (genre)':   'dierenstuk',
+    'abstraction':               'abstractie',
+    'design (artistic concept)': 'ontwerp',
+    'study (visual work)':       'studie',
+    'architecture (genre)':      'architectuurstuk',
+}
+
+# Portrait: figure-type patterns (checked in order; first match wins)
+PORTRAIT_TYPE_PATTERNS = [
+    (['self-portrait', 'zelfportret'],               'zelfportret'),
+    (['double portrait', 'pair of portraits'],        'dubbelportret'),
+    (['group portrait'],                              'groepsportret'),
+    (['child', 'boy', 'girl'],                        'kinderportret'),
+    (['woman', 'female', 'lady', 'dame'],             'vrouwenportret'),
+    (['man', 'male', 'gentleman'],                    'mansportret'),
+]
+
+# Portrait: attitude/position patterns (all matches collected, in manual order)
+PORTRAIT_POSITION_PATTERNS = [
+    (['bust', 'bust-length', 'head and shoulders',
+      'head-and-shoulders'],                          'schouderstuk (figuurdeel)'),
+    (['half-length', 'half length', 'to the waist',
+      'waist-length'],                                'ten halven lijve'),
+    (['three-quarter', 'three quarter'],              'driekwart figuur'),
+    (['full-length', 'full length'],                  'ten voeten uit'),
+    (['seated', 'sitting'],                           'zittend'),
+    (['facing left', 'looking left', 'turned to the left',
+      'to his left', 'to her left'],                  'hoofd naar links'),
+    (['facing right', 'looking right', 'turned to the right',
+      'to his right', 'to her right'],                'hoofd naar rechts'),
+    (['facing viewer', 'facing forward', 'looking out',
+      'full face', 'en face'],                        'aanziend'),
+]
+
+# Portrait: clothing/attribute patterns (all matches collected)
+PORTRAIT_ATTRIBUTE_PATTERNS = [
+    (['ruff', 'pleated ruff'],                        'plooikraag'),
+    (['lace collar', 'falling collar'],               'kanten kraag'),
+    (['collar'],                                      'kraag'),
+    (['cuffs'],                                       'manchetten'),
+    (['cap', 'bonnet', 'coif'],                       'muts'),
+    (['hat'],                                         'hoed'),
+    (['chain', 'necklace'],                           'ketting (schakels)'),
+    (['brooch'],                                      'broche'),
+    (['earring', 'earrings'],                         'oorbellen'),
+    (['armor', 'armour', 'breastplate'],              'harnas'),
+]
+
+# General subject keywords for non-portrait genres
+GENERAL_SUBJECT_PATTERNS = [
+    # Animals
+    (['horse', 'horses'],                             'paard'),
+    (['dog', 'dogs', 'hound'],                        'hond'),
+    (['cat', 'cats', 'kitten', 'kittens'],            'kat'),
+    (['cow', 'cows', 'cattle'],                       'koe'),
+    (['sheep', 'lamb', 'lambs'],                      'schaap'),
+    (['goat', 'goats'],                               'geit'),
+    (['bird', 'birds'],                               'vogel'),
+    (['duck', 'ducks'],                               'eend'),
+    (['peacock'],                                     'pauw'),
+    (['hen', 'chickens', 'rooster'],                  'kip'),
+    # Plants / flowers
+    (['roses', 'rose'],                               'roos'),
+    (['tulips', 'tulip'],                             'tulp'),
+    (['anemones', 'anemone'],                         'anemoon'),
+    (['bouquet', 'flowers', 'floral'],                'bloemen'),
+    (['fruit', 'grapes', 'peaches', 'apples',
+      'pears', 'cherries'],                           'vruchten'),
+    (['tree', 'trees'],                               'boom'),
+    # Objects (still life)
+    (['vase'],                                        'vaas'),
+    (['jug', 'pitcher'],                              'kan'),
+    (['glass', 'glasses', 'goblet'],                  'glas'),
+    (['bowl'],                                        'schaal'),
+    (['book', 'books'],                               'boek'),
+    (['skull'],                                       'schedel'),
+    # Water / marine settings
+    (['harbour', 'harbor', 'port'],                   'haven'),
+    (['sea', 'ocean', 'waves', 'surf', 'breakers'],   'zee'),
+    (['river', 'canal', 'stream'],                    'rivier'),
+    (['boat', 'boats', 'vessel'],                     'boot'),
+    (['ship', 'ships'],                               'schip'),
+    # Landscape settings
+    (['forest', 'wood', 'woods'],                     'bos'),
+    (['mountain', 'mountains'],                       'berg'),
+    (['dunes', 'dune'],                               'duinen'),
+    (['meadow', 'field', 'fields'],                   'weiland'),
+    (['farm', 'farmhouse', 'farmstead'],              'boerderij'),
+    # Urban / buildings
+    (['church', 'cathedral'],                         'kerk'),
+    (['castle', 'fortress'],                          'kasteel'),
+    (['windmill', 'mill'],                            'molen'),
+    (['bridge'],                                      'brug'),
+    (['street', 'alley'],                             'straat'),
+    # Figure / people
+    (['peasant', 'farmer'],                           'boer'),
+    (['fisherman', 'fisher', 'fishing'],              'visser'),
+    (['soldier', 'military', 'officer'],              'militair'),
+    (['nude', 'naked'],                               'naakt'),
+    (['winter', 'snow', 'ice', 'frozen'],             'winter'),
+]
+
 # ============================================================
 # 2. CONFIDENCE SCORING FRAMEWORK
 # ============================================================
@@ -178,14 +292,19 @@ def score_dimensions(height, width) -> tuple:
         return round(w * 0.5), 'Only one dimension extracted'
     return 0, 'No dimensions found'
 
-def score_subject_kw() -> tuple:
-    return round(FIELD_WEIGHTS['subject_kw'] * 0.1), \
-           'Left blank - requires expert AAT/RKD verification'
+def score_subject_kw(num_kw: int) -> tuple:
+    w = FIELD_WEIGHTS['subject_kw']
+    if num_kw >= 3:
+        return round(w * 0.6), f'{num_kw} keywords auto-extracted - verify against RKD thesaurus'
+    if num_kw >= 1:
+        return round(w * 0.4), f'{num_kw} keyword(s) auto-extracted - verify against RKD thesaurus'
+    return round(w * 0.1), 'No keywords extracted - requires expert review'
 
 def compute_confidence(rkd_artwork_found, rkd_artist_found, qualifier,
                        raw_name, is_school, date_dutch, sig_dated,
                        used_lifespan, circa, genres, num_kw_matched,
-                       obj_name, desc, height, width) -> dict:
+                       obj_name, desc, height, width,
+                       num_subject_kw=0) -> dict:
     s_art_no, n_art_no = score_artwork_number(rkd_artwork_found)
     s_artist, n_artist = score_artist_name(rkd_artist_found, qualifier,
                                            raw_name, is_school)
@@ -194,7 +313,7 @@ def compute_confidence(rkd_artwork_found, rkd_artist_found, qualifier,
     s_genre,  n_genre  = score_genre(genres, num_kw_matched)
     s_obj,    n_obj    = score_object_name(obj_name, desc)
     s_dims,   n_dims   = score_dimensions(height, width)
-    s_subj,   n_subj   = score_subject_kw()
+    s_subj,   n_subj   = score_subject_kw(num_subject_kw)
 
     total = s_art_no + s_artist + s_date + s_genre + s_obj + s_dims + s_subj
 
@@ -463,8 +582,247 @@ def detect_genres(description: str, title_field: str) -> tuple:
     return genres, total_kw_hits
 
 # ============================================================
-# 8. OBJECT NAME
+# 8. SUBJECT KEYWORDS
 # ============================================================
+
+def extract_subject_keywords(description: str, title_field: str,
+                              genres: list) -> list:
+    """
+    Extracts subject keywords per RKD manual rules:
+    1. Classification term derived from the primary detected genre.
+    2. For portraits: figure type → attitude/position → clothing/attributes
+       (fixed order per manual).
+    3. For all other genres: general keyword patterns from description/title.
+    Returns a de-duplicated, ordered list of Dutch RKD keyword strings.
+    """
+    text       = (str(description) + ' ' + str(title_field)).lower()
+    primary    = genres[0] if genres else 'undetermined'
+    keywords   = []
+
+    # 1. Classification term
+    class_term = GENRE_TO_SUBJECT_KW.get(primary)
+    if class_term:
+        keywords.append(class_term)
+
+    # 2a. Portrait-specific fixed order
+    if primary == 'portrait':
+        # Figure type (first match only)
+        for patterns, term in PORTRAIT_TYPE_PATTERNS:
+            if any(p in text for p in patterns):
+                keywords.append(term)
+                break
+
+        # Attitude / position (all matches, in manual order)
+        for patterns, term in PORTRAIT_POSITION_PATTERNS:
+            if any(p in text for p in patterns):
+                keywords.append(term)
+
+        # Clothing / attributes (all matches)
+        for patterns, term in PORTRAIT_ATTRIBUTE_PATTERNS:
+            if any(p in text for p in patterns):
+                keywords.append(term)
+
+    # 2b. General keywords for non-portrait genres
+    else:
+        for patterns, term in GENERAL_SUBJECT_PATTERNS:
+            if any(p in text for p in patterns):
+                keywords.append(term)
+
+    # De-duplicate while preserving order
+    seen = set()
+    result = []
+    for kw in keywords:
+        if kw not in seen:
+            seen.add(kw)
+            result.append(kw)
+    return result
+
+
+# ============================================================
+# 9. PROVENANCE EXTRACTION
+# ============================================================
+
+# Known auction house names (used to classify entries as auction vs. collection)
+AUCTION_HOUSES = [
+    'christie', 'sotheby', 'bonham', 'phillips', 'dorotheum', 'van ham',
+    'lempertz', 'bukowski', 'bruun rasmussen', 'koller', 'de vuyst',
+    'drouot', 'cornette de saint cyr', 'tajan', 'artcurial', 'millon',
+    'piguet', 'schuler', 'galerie fisher', 'venduehuis', 'glerum',
+    'de zon', 'mak van waay', 'sotheby\'s', 'christie\'s',
+]
+
+# Currency symbols / abbreviations used in sale price detection
+CURRENCY_PATTERN = re.compile(
+    r'(?:gbp|hfl|€|£|\$|eur|usd|nl?g\.?|fl\.?)\s*[\d,\.]+|'
+    r'[\d,\.]+\s*(?:gbp|hfl|€|£|\$|eur|usd|nl?g\.?|guineas?)',
+    re.IGNORECASE
+)
+
+
+def _split_provenance_entries(raw: str) -> list:
+    """
+    Split a raw provenance block into individual entries.
+    Entries are typically separated by semicolons, newlines, or line-break dashes.
+    """
+    # Normalise line breaks
+    raw = raw.replace('\r\n', '\n').replace('\r', '\n')
+    # Split on semicolons or newlines that act as separators
+    parts = re.split(r';\s*\n?|\n+', raw)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _classify_entry(entry: str) -> str:
+    """Return 'auction', 'collection', or 'unknown'."""
+    low = entry.lower()
+    if any(ah in low for ah in AUCTION_HOUSES):
+        return 'auction'
+    if re.search(r'\b(sale|sold|auction|veiling|lot\s*\d+)\b', low):
+        return 'auction'
+    return 'collection'
+
+
+def _extract_year(text: str):
+    """Return the first 4-digit year found, or None."""
+    m = re.search(r'\b(1[4-9]\d{2}|20[0-2]\d)\b', text)
+    return int(m.group(1)) if m else None
+
+
+def _extract_lot(text: str):
+    """Return lot number string if present, or None."""
+    m = re.search(r'\blot\s*[#no\.]*\s*(\w+)\b', text, re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def _extract_auction_house(entry: str):
+    """Return the first recognised auction house name, or None."""
+    low = entry.lower()
+    for ah in AUCTION_HOUSES:
+        if ah in low:
+            # Return title-cased version of what was found in the original text
+            idx = low.index(ah)
+            return entry[idx: idx + len(ah)].strip(" ,;")
+    return None
+
+
+def extract_provenance(description: str) -> dict:
+    """
+    Extracts and structures provenance information from an auction description.
+
+    Follows RKDimages field definitions (Screens 6 & 7):
+      - Name of collection (cn / collectienaam)
+      - Remark collection (cd / opm._verblijfplaats)
+      - Date beginning (cb / begindatum_in_collectie)
+      - Date end (ce / einddatum_in_collectie)
+      - Remark date (ex / opm._datum_uit_collectie)
+      - Auction house (yh / veilinghuis-c)
+      - Lot number (yl / lotnummer-c)
+
+    Returns a dict with:
+      prov_raw         – the raw provenance block extracted from description
+      prov_entries     – pipe-separated list of individual provenance statements
+      prov_collections – pipe-separated collection/owner names
+      prov_dates_begin – pipe-separated begin years
+      prov_dates_end   – pipe-separated end years  ('' when unknown)
+      prov_remarks     – pipe-separated remark strings
+      prov_auction_houses – pipe-separated recognised auction house names
+      prov_lot_numbers – pipe-separated lot numbers
+      prov_entry_count – total number of entries found
+    """
+    desc = str(description)
+
+    # --- 1. Isolate the provenance block ---
+    # Auction catalogues typically label it "Provenance:", "Provenance :", or
+    # "Herkomst:" (Dutch).  Everything up to the next labelled section is kept.
+    prov_match = re.search(
+        r'(?:Provenance|Herkomst)\s*:?\s*(.*?)(?=\n\s*(?:[A-Z][a-z]+\s*:|\Z)|$)',
+        desc, re.IGNORECASE | re.DOTALL
+    )
+    raw_block = prov_match.group(1).strip() if prov_match else ''
+
+    # Fallback: if no explicit label, try to detect lines that look like
+    # provenance (owner name + optional year, or auction house references)
+    if not raw_block:
+        prov_lines = []
+        for line in desc.split('\n'):
+            low = line.lower()
+            has_ah   = any(ah in low for ah in AUCTION_HOUSES)
+            has_sale = bool(re.search(r'\b(sale|sold|auction|lot\s*\d+|collection)\b', low))
+            if has_ah or has_sale:
+                prov_lines.append(line.strip())
+        raw_block = '; '.join(prov_lines)
+
+    if not raw_block:
+        return {
+            'prov_raw':           '',
+            'prov_entries':       '',
+            'prov_collections':   '',
+            'prov_dates_begin':   '',
+            'prov_dates_end':     '',
+            'prov_remarks':       '',
+            'prov_auction_houses':'',
+            'prov_lot_numbers':   '',
+            'prov_entry_count':   0,
+        }
+
+    # --- 2. Split into individual entries ---
+    entries = _split_provenance_entries(raw_block)
+
+    # --- 3. Parse each entry ---
+    collections    = []
+    dates_begin    = []
+    dates_end      = []
+    remarks        = []
+    auction_houses = []
+    lot_numbers    = []
+
+    for entry in entries:
+        kind = _classify_entry(entry)
+        year = _extract_year(entry)
+
+        if kind == 'auction':
+            ah  = _extract_auction_house(entry) or ''
+            lot = _extract_lot(entry) or ''
+            auction_houses.append(ah)
+            lot_numbers.append(lot)
+            dates_begin.append(str(year) if year else '')
+            dates_end.append('')
+            collections.append('')
+            # Store the full entry as a remark (per RKD "Remark auction with barcode" field)
+            remarks.append(entry)
+        else:
+            # Collection / owner entry
+            # Name: everything before the first date or parenthetical
+            name_match = re.match(r'^([^(,\d]+)', entry)
+            name = name_match.group(1).strip(' ,;') if name_match else entry
+            collections.append(name)
+            dates_begin.append(str(year) if year else '')
+            dates_end.append('')
+            auction_houses.append('')
+            lot_numbers.append('')
+            # Remainder of entry becomes the remark
+            remark = entry[len(name):].strip(' ,;') if name_match else ''
+            remarks.append(remark)
+
+    def pipe(lst):
+        return ' | '.join(lst)
+
+    return {
+        'prov_raw':            raw_block,
+        'prov_entries':        pipe(entries),
+        'prov_collections':    pipe(collections),
+        'prov_dates_begin':    pipe(dates_begin),
+        'prov_dates_end':      pipe(dates_end),
+        'prov_remarks':        pipe(remarks),
+        'prov_auction_houses': pipe(auction_houses),
+        'prov_lot_numbers':    pipe(lot_numbers),
+        'prov_entry_count':    len(entries),
+    }
+
+
+# ============================================================
+# 10. OBJECT NAME
+# ============================================================
+
 
 def detect_object_name(description: str) -> str:
     desc_lower = str(description).lower()
@@ -474,7 +832,7 @@ def detect_object_name(description: str) -> str:
     return 'painting'
 
 # ============================================================
-# 9. CORE PIPELINE
+# 10. CORE PIPELINE
 # ============================================================
 
 def build_image_lookup(images_dir: str) -> dict:
@@ -540,6 +898,12 @@ def process_auction_metadata(df: pd.DataFrame) -> pd.DataFrame:
         # --- Object name ---
         obj_name = detect_object_name(desc)
 
+        # --- Subject keywords ---
+        subject_kws = extract_subject_keywords(desc, title_raw, genres)
+
+        # --- Provenance ---
+        prov = extract_provenance(desc)
+
         # --- Confidence scores ---
         conf = compute_confidence(
             rkd_artwork_found = rkd_artwork_found,
@@ -557,6 +921,7 @@ def process_auction_metadata(df: pd.DataFrame) -> pd.DataFrame:
             desc              = desc,
             height            = dims['height'],
             width             = dims['width'],
+            num_subject_kw    = len(subject_kws),
         )
 
         record = {
@@ -571,7 +936,7 @@ def process_auction_metadata(df: pd.DataFrame) -> pd.DataFrame:
             'Search margin: end (ev)':   date_info['margin_end'],
             'Date remark':               date_info['date_note'],
             'Genre (gt)':                ' | '.join(genres),
-            'Subject keyword (ot)':      '',   # blank - requires expert review
+            'Subject keyword (ot)':      ' | '.join(subject_kws),
             'Object name (oj)':          obj_name,
             'Shape (vo)':                dims['shape'],
             'Height':                    dims['height'],
@@ -587,6 +952,16 @@ def process_auction_metadata(df: pd.DataFrame) -> pd.DataFrame:
             'Conf: dimensions':          conf['conf_dimensions'],
             'Conf: subject keyword':     conf['conf_subject_kw'],
             'Confidence breakdown':      conf['confidence_breakdown'],
+            # --- Provenance (Screen 6/7: Herkomst 1/2) ---
+            'Prov: raw text':        prov['prov_raw'],
+            'Prov: entries':         prov['prov_entries'],
+            'Prov: collections (cn)':prov['prov_collections'],
+            'Prov: date begin (cb)': prov['prov_dates_begin'],
+            'Prov: date end (ce)':   prov['prov_dates_end'],
+            'Prov: remarks (cd/ex)': prov['prov_remarks'],
+            'Prov: auction houses (yh)': prov['prov_auction_houses'],
+            'Prov: lot numbers (yl)':prov['prov_lot_numbers'],
+            'Prov: entry count':     prov['prov_entry_count'],
             # --- Reference columns ---
             'Image path':                os.path.relpath(image_lookup[int(float(lot_no))], BASE_DIR) if lot_no != '' and int(float(lot_no)) in image_lookup else '',
             'Lot No (source)':           lot_no,
