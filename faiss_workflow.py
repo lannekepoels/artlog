@@ -160,7 +160,7 @@ for i, sec_name in enumerate(sec_names):
     record   = {
         'secondary_image': sec_name,
         'primary_match':   pri_name,
-        'similarity':      round(sim, 4),
+        'similarity':      f"{sim:.4f}",
     }
     (matches if sim >= THRESHOLD else no_match).append(record)
 
@@ -173,7 +173,7 @@ if matches:
     print(f"\n{'Secondary image':<40} {'Primary match':<40} {'Score':>6}")
     print('-' * 88)
     for m in matches:
-        print(f"  {m['secondary_image']:<38} {m['primary_match']:<38} {m['similarity']:>6.4f}")
+        print(f"  {m['secondary_image']:<38} {m['primary_match']:<38} {m['similarity']:>6}")
 else:
     print("\nNo matches above threshold.")
 
