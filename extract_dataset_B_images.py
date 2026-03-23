@@ -1,125 +1,75 @@
 """
-Extract artwork image regions from scanned catalogue pages using contour detection.
+Extract figure/image regions from scanned catalogue pages using YOLOv8 DocLayNet.
 
+Model:  yolov8x-doclaynet.pt  (pretrained on DocLayNet — includes "Picture" class)
 Input:  data/dataset_B/*.jpg
-Output: data/dataset_B_images/{stem}_crop_1.jpg, {stem}_crop_2.jpg, ...
+Output: data/dataset_B_images/{stem}_crop_1.jpg, ...
+
+Download the model weights before first run:
+  https://huggingface.co/nickmuchi/yolov8-medium-finetuned-doclaynet/resolve/main/yolov8x-doclaynet.pt
+  or:  wget https://huggingface.co/nickmuchi/yolov8-medium-finetuned-doclaynet/resolve/main/yolov8x-doclaynet.pt
+
+Requires: pip install ultralytics Pillow
 """
 
-import cv2
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 from PIL import Image
+from doclayout_yolo import YOLOv10 as YOLO
 
 # ---------------------------------------------------------------------------
 # Tunable constants
 # ---------------------------------------------------------------------------
 
-# Area bounds as a fraction of the total page area
-MIN_AREA_FRAC = 0.01   # ignore contours smaller than 1% of the page
-MAX_AREA_FRAC = 0.90   # ignore contours larger than 90% of the page (full-page layouts)
+MODEL_PATH = "doclayout_yolo_docstructbench_imgsz1024.pt"
 
-# Aspect ratio (width / height) — artwork is rarely extremely tall or wide
-MIN_ASPECT = 0.3
-MAX_ASPECT = 3.5
+# Minimum YOLO confidence to accept a detection
+CONFIDENCE_THRESHOLD = 0.3
 
-# Pixel variance threshold: regions below this are considered blank/white
-MIN_VARIANCE = 200.0
+# DocLayNet class names to treat as artwork regions (case-insensitive substring match)
+# DocLayNet uses "Picture" — keep this broad in case a variant model uses "Figure"
+TARGET_CLASSES = {"picture", "figure", "illustration", "image"}
 
-# Canny edge detection thresholds
-CANNY_LOW  = 50
-CANNY_HIGH = 150
+# Pixel variance threshold — crops below this are blank/white and skipped
+MIN_VARIANCE = 150.0
 
-# Gaussian blur kernel size (must be odd)
-BLUR_KERNEL = 5
+# Minimum pixel dimension on either side for a saved crop
+MIN_CROP_PX = 80
 
-# Dilation kernel size — closes small gaps in region borders so contours are complete
-DILATE_KERNEL = 3
-DILATE_ITERS  = 2
-
-# Overlap suppression: if a smaller box overlaps a larger one by more than this
-# fraction of the smaller box's area, discard the smaller box
-OVERLAP_THRESHOLD = 0.6
-
-# Minimum pixel dimension for a saved crop (safety guard)
-MIN_CROP_PX = 50
+INPUT_DIR  = Path("data/dataset_B")
+OUTPUT_DIR = Path("data/dataset_B_images")
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _intersection_area(a, b):
-    """Area of intersection between two (x, y, w, h) rectangles."""
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
-    ix = max(ax, bx)
-    iy = max(ay, by)
-    iw = min(ax + aw, bx + bw) - ix
-    ih = min(ay + ah, by + bh) - iy
-    return max(0, iw) * max(0, ih)
-
-
-def suppress_overlapping(rects):
+def get_target_class_ids(model) -> set:
     """
-    Remove smaller rectangles that are substantially contained within larger ones.
-    Returns a filtered list sorted by area descending.
+    Return the set of class IDs whose names overlap with TARGET_CLASSES.
+    Prints all available classes on first run so you can verify / adjust TARGET_CLASSES.
     """
-    rects = sorted(rects, key=lambda r: r[2] * r[3], reverse=True)
-    kept = []
-    for candidate in rects:
-        ca = candidate[2] * candidate[3]
-        discard = False
-        for keeper in kept:
-            inter = _intersection_area(candidate, keeper)
-            if ca > 0 and inter / ca >= OVERLAP_THRESHOLD:
-                discard = True
-                break
-        if not discard:
-            kept.append(candidate)
-    return kept
+    names = model.names  # {0: 'Caption', 1: 'Footnote', ...}
+    print("Available classes in model:")
+    for idx, name in names.items():
+        print(f"  {idx}: {name}")
+    print()
+
+    matched = {idx for idx, name in names.items()
+               if any(t in name.lower() for t in TARGET_CLASSES)}
+
+    if not matched:
+        print("[WARN] No classes matched TARGET_CLASSES. Check the class names above "
+              "and update TARGET_CLASSES in the script.")
+    else:
+        matched_names = [names[i] for i in sorted(matched)]
+        print(f"Targeting class(es): {matched_names}\n")
+
+    return matched
 
 
-def detect_regions(img_bgr):
-    """
-    Return a list of (x, y, w, h) bounding rectangles for candidate artwork regions.
-    """
-    h, w = img_bgr.shape[:2]
-    page_area = h * w
-
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (BLUR_KERNEL, BLUR_KERNEL), 0)
-    edges = cv2.Canny(blurred, CANNY_LOW, CANNY_HIGH)
-
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_RECT, (DILATE_KERNEL, DILATE_KERNEL)
-    )
-    dilated = cv2.dilate(edges, kernel, iterations=DILATE_ITERS)
-
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    candidates = []
-    for cnt in contours:
-        x, y, rw, rh = cv2.boundingRect(cnt)
-        area = rw * rh
-        frac = area / page_area
-
-        if frac < MIN_AREA_FRAC or frac > MAX_AREA_FRAC:
-            continue
-
-        aspect = rw / rh if rh > 0 else 0
-        if aspect < MIN_ASPECT or aspect > MAX_ASPECT:
-            continue
-
-        if rw < MIN_CROP_PX or rh < MIN_CROP_PX:
-            continue
-
-        candidates.append((x, y, rw, rh))
-
-    return suppress_overlapping(candidates)
-
-
-def is_blank(crop_bgr):
-    """Return True if the crop has very low pixel variance (likely white/empty)."""
-    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+def is_blank(crop: Image.Image) -> bool:
+    gray = np.array(crop.convert("L"), dtype=np.float32)
     return float(np.var(gray)) < MIN_VARIANCE
 
 
@@ -128,60 +78,90 @@ def is_blank(crop_bgr):
 # ---------------------------------------------------------------------------
 
 def main():
-    input_dir  = Path("data/dataset_B")
-    output_dir = Path("data/dataset_B_images")
-    output_dir.mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    jpg_files = sorted(input_dir.glob("*.jpg"))
+    jpg_files = sorted(INPUT_DIR.glob("*.jpg"))
     if not jpg_files:
-        print(f"No JPG files found in {input_dir}")
+        print(f"No JPG files found in {INPUT_DIR}")
         return
 
-    files_processed = 0
-    files_skipped   = 0
-    total_regions   = 0
+    # Detect available device — Ultralytics handles this internally,
+    # but we pass device explicitly so CPU-only machines work without warnings
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        device = "cpu"
+
+    print(f"Loading model: {MODEL_PATH}  (device: {device})")
+    model = YOLO(MODEL_PATH)
+    target_ids = get_target_class_ids(model)
+
+    pages_processed = 0
+    pages_skipped   = 0
+    total_figures   = 0
 
     for jpg_path in jpg_files:
         stem = jpg_path.stem
-        img = cv2.imread(str(jpg_path))
-        if img is None:
-            print(f"  [WARN] Could not read {jpg_path.name} — skipping")
-            files_skipped += 1
+        try:
+            image = Image.open(jpg_path).convert("RGB")
+        except Exception as exc:
+            print(f"  [WARN] Cannot open {jpg_path.name}: {exc}")
+            pages_skipped += 1
             continue
 
-        files_processed += 1
-        rects = detect_regions(img)
+        pages_processed += 1
 
+        results = model(
+            str(jpg_path),
+            conf=CONFIDENCE_THRESHOLD,
+            device=device,
+            verbose=False,
+        )
+
+        boxes = results[0].boxes
         valid_crops = []
-        for rect in rects:
-            x, y, rw, rh = rect
-            crop = img[y:y+rh, x:x+rw]
-            if crop.size == 0 or is_blank(crop):
+
+        for i in range(len(boxes)):
+            cls_id = int(boxes.cls[i].item())
+            if target_ids and cls_id not in target_ids:
                 continue
-            valid_crops.append((rect, crop))
+
+            x1, y1, x2, y2 = (int(round(c)) for c in boxes.xyxy[i].tolist())
+
+            # Clamp to image bounds
+            x1 = max(0, x1); y1 = max(0, y1)
+            x2 = min(image.width,  x2)
+            y2 = min(image.height, y2)
+
+            w, h = x2 - x1, y2 - y1
+            if w < MIN_CROP_PX or h < MIN_CROP_PX:
+                continue
+
+            crop = image.crop((x1, y1, x2, y2))
+            if is_blank(crop):
+                continue
+
+            valid_crops.append(crop)
 
         if not valid_crops:
-            print(f"  [SKIP] {jpg_path.name} — no valid regions found")
-            files_skipped += 1
+            print(f"  [SKIP] {jpg_path.name} — no figures detected")
+            pages_skipped += 1
             continue
 
-        for idx, (rect, crop_bgr) in enumerate(valid_crops, start=1):
-            out_name = f"{stem}_crop_{idx}.jpg"
-            out_path = output_dir / out_name
+        for idx, crop in enumerate(valid_crops, start=1):
+            out_path = OUTPUT_DIR / f"{stem}_crop_{idx}.jpg"
+            crop.save(str(out_path), quality=95)
 
-            # Use Pillow to save (handles colour conversion cleanly)
-            crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
-            Image.fromarray(crop_rgb).save(str(out_path), quality=95)
-
-        total_regions += len(valid_crops)
-        print(f"  [OK]   {jpg_path.name} — {len(valid_crops)} region(s) saved")
+        total_figures += len(valid_crops)
+        print(f"  [OK]   {jpg_path.name} — {len(valid_crops)} figure(s) saved")
 
     print()
     print("=" * 50)
-    print(f"Files processed : {files_processed}")
-    print(f"Regions saved   : {total_regions}")
-    print(f"Files skipped   : {files_skipped}")
-    print(f"Output folder   : {output_dir.resolve()}")
+    print(f"Pages processed : {pages_processed}")
+    print(f"Figures saved   : {total_figures}")
+    print(f"Pages skipped   : {pages_skipped}")
+    print(f"Output folder   : {OUTPUT_DIR.resolve()}")
     print("=" * 50)
 
 
