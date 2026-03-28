@@ -30,7 +30,7 @@ THRESHOLD = 0.80
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 VECTORS_DIR     = os.path.join(BASE_DIR, 'data', 'vectors')
-SECONDARY_DIR   = os.path.join(BASE_DIR, 'data', 'auction_images_secondary')
+SECONDARY_DIR   = os.path.join(BASE_DIR, 'data', 'dataset_A_images_secondary')
 PRIMARY_NPZ     = os.path.join(VECTORS_DIR, 'image_vectors.npz')
 PRIMARY_INDEX   = os.path.join(VECTORS_DIR, 'primary.faiss')
 PRIMARY_NAMES   = os.path.join(VECTORS_DIR, 'primary_names.npy')

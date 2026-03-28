@@ -11,7 +11,7 @@ from sklearn.preprocessing import normalize
 
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 VECTORS_NPZ  = os.path.join(BASE_DIR, 'data', 'vectors', 'image_vectors.npz')
-IMAGES_DIR   = os.path.join(BASE_DIR, 'data', 'auction_images_primary')
+IMAGES_DIR   = os.path.join(BASE_DIR, 'data', 'dataset_A_images_primary')
 CLUSTERS_DIR = os.path.join(BASE_DIR, 'data', 'clusters')
 N_CLUSTERS = 15    # number of clusters — adjust to taste
 

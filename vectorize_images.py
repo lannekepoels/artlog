@@ -17,12 +17,12 @@ VECTORS_DIR = os.path.join(BASE_DIR, 'data', 'vectors')
 
 DATASETS = {
     'primary': {
-        'images_dir': os.path.join(BASE_DIR, 'data', 'auction_images_primary'),
+        'images_dir': os.path.join(BASE_DIR, 'data', 'dataset_A_images_primary'),
         'npz_out':    os.path.join(VECTORS_DIR, 'image_vectors.npz'),
         'json_out':   os.path.join(VECTORS_DIR, 'image_vectors.json'),
     },
     'secondary': {
-        'images_dir': os.path.join(BASE_DIR, 'data', 'auction_images_secondary'),
+        'images_dir': os.path.join(BASE_DIR, 'data', 'dataset_A_images_secondary'),
         'npz_out':    os.path.join(VECTORS_DIR, 'image_vectors_secondary.npz'),
         'json_out':   None,
     },
