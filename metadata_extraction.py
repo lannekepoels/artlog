@@ -428,6 +428,12 @@ def extract_and_format_date(description: str, title: str,
         'circa':          circa,
     }
 
+def _extract_dated_year(description: str):
+    """Return the 4-digit year following an explicit 'dated' marker, or None."""
+    m = re.search(r'\bdated\b[^0-9\n]{0,30}?(\d{4})\b', description, re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
 # ============================================================
 # 7. GENRE DETECTION
 # ============================================================
@@ -460,6 +466,67 @@ def detect_genres(description: str, title_field: str) -> tuple:
     matched.sort(key=lambda x: -x[1])
     genres = [g for g, _ in matched] if matched else ['undetermined']
     return genres, total_kw_hits
+
+
+# ============================================================
+# 8. PROVENANCE, EXHIBITION & SIGNATURE EXTRACTION
+# ============================================================
+
+_SECTION_BOUNDARY = re.compile(
+    r'\b(Provenance|Exhibited|Literature|Bibliography)\s*:',
+    re.IGNORECASE
+)
+
+
+def extract_provenance(description: str) -> list:
+    """Returns a list of provenance entries. Entries are split on ' - ' followed
+    by a capital letter (the auction catalogue convention for new listings)."""
+    match = re.search(r'\bProvenance\s*:\s*', description, re.IGNORECASE)
+    if not match:
+        return ['no provenance found']
+    text = description[match.end():]
+    stop = _SECTION_BOUNDARY.search(text)
+    if stop:
+        text = text[:stop.start()]
+    text = text.strip()
+    if not text:
+        return ['no provenance found']
+    entries = re.split(r' - (?=[A-Z])', text)
+    return [e.strip() for e in entries if e.strip()]
+
+
+def extract_exhibition(description: str) -> str:
+    match = re.search(r'\bExhibited\s*:\s*', description, re.IGNORECASE)
+    if not match:
+        return 'no exhibition found'
+    text = description[match.end():]
+    stop = _SECTION_BOUNDARY.search(text)
+    if stop:
+        text = text[:stop.start()]
+    return text.strip() or 'no exhibition found'
+
+
+def extract_signature_info(description: str) -> dict:
+    result = {'inscription': '', 'location': ''}
+
+    signed_matches = list(re.finditer(r'\bsigned\b', description, re.IGNORECASE))
+    if not signed_matches:
+        return result
+
+    # Inscription and location: segment after first 'signed' up to next comma
+    first_end = signed_matches[0].end()
+    comma_pos = description.find(',', first_end)
+    segment = description[first_end: comma_pos if comma_pos != -1 else len(description)]
+
+    quote_match = re.search(r"'[^']*'", segment)
+    if quote_match:
+        result['inscription'] = quote_match.group(0)
+
+    bracket_match = re.search(r'\(([^)]*)\)', segment)
+    if bracket_match:
+        result['location'] = bracket_match.group(1)
+
+    return result
 
 
 # ============================================================
@@ -529,6 +596,25 @@ def process_auction_metadata(df: pd.DataFrame) -> pd.DataFrame:
         # --- Object name ---
         obj_name = detect_object_name(desc)
 
+        # --- Provenance, exhibition & signature ---
+        provenance = extract_provenance(desc)
+        exhibition = extract_exhibition(desc)
+        sig_info   = extract_signature_info(desc)
+
+        # --- Validate / fill date fields from explicit 'dated' marker ---
+        dated_year     = _extract_dated_year(desc)
+        pre_sig_dated  = date_info['sig_dated']
+        if dated_year:
+            if not date_info['date_dutch']:
+                # Date was unknown — fill from 'dated' inscription
+                date_info.update({
+                    'date_dutch':   f'{dated_year} gedateerd',
+                    'date_english': f'dated {dated_year}',
+                    'margin_begin': dated_year,
+                    'margin_end':   dated_year,
+                    'sig_dated':    True,
+                })
+
         # --- Confidence scores ---
         conf = compute_confidence(
             qualifier      = qualifier,
@@ -547,33 +633,46 @@ def process_auction_metadata(df: pd.DataFrame) -> pd.DataFrame:
             is_3d          = dims['is_3d'],
         )
 
+        # Boost confidence when 'dated' validates a year that wasn't from a signature
+        if (dated_year and not pre_sig_dated
+                and date_info.get('margin_begin') == dated_year):
+            conf['confidence_pct'] = min(100, conf['confidence_pct'] + 5)
+            conf['confidence_breakdown'] += ' | +5: "dated" inscription validates year'
+
         record = {
             # --- Mandatory RKD fields ---
-            'Artwork number':             artwork_number,
-            'Status':                    'huidig',
-            'Artist':                    final_name,
-            'Kwalificatie':              qualifier,
-            'Date Dutch':                date_info['date_dutch'],
-            'Date English':              date_info['date_english'],
-            'Search margin: begin':      date_info['margin_begin'],
-            'Search margin: end':        date_info['margin_end'],
-            'Date remark':               date_info['date_note'],
-            'Genre':                     ' | '.join(genres),
-            'Subject keyword':           '',
-            'Object name':               obj_name,
-            'Shape':                     dims['shape'],
-            'Height':                    '' if dims['is_3d'] else dims['height'],
-            'Width':                     '' if dims['is_3d'] else dims['width'],
-            'Unit':                      dims['unit'],
+            'Artwork number':        artwork_number,
+            'Status':                'huidig',
+            'Artist':                final_name,
+            'Kwalificatie':          qualifier,
+            'Date Dutch':            date_info['date_dutch'],
+            'Date English':          date_info['date_english'],
+            'Search margin: begin':  date_info['margin_begin'],
+            'Search margin: end':    date_info['margin_end'],
+            'Date remark':           date_info['date_note'],
+            'Genre':                 ' | '.join(genres),
+            'Subject keyword':       '',
+            'Object name':           obj_name,
+            'Shape':                 dims['shape'],
+            'Height':                '' if dims['is_3d'] else dims['height'],
+            'Width':                 '' if dims['is_3d'] else dims['width'],
+            'Unit':                  dims['unit'],
             # --- Confidence scores ---
-            'Confidence (%)':            conf['confidence_pct'],
-            'Confidence breakdown':      conf['confidence_breakdown'],
+            'Confidence (%)':        conf['confidence_pct'],
+            'Confidence breakdown':  conf['confidence_breakdown'],
             # --- Reference columns ---
-            'Image path':                os.path.relpath(image_lookup[int(float(lot_no))], BASE_DIR) if lot_no != '' and int(float(lot_no)) in image_lookup else '',
-            'Lot No (source)':           lot_no,
-            'Original_Title':            title_raw,
-            'Original_Description':      desc,
+            'Image path':            os.path.relpath(image_lookup[int(float(lot_no))], BASE_DIR) if lot_no != '' and int(float(lot_no)) in image_lookup else '',
         }
+        # Provenance between Image path and Exhibition, extras in numbered columns
+        record['Provenance'] = provenance[0]
+        for i, entry in enumerate(provenance[1:], start=2):
+            record[f'Provenance ({i})'] = entry
+        record['Exhibition']           = exhibition
+        record['Signature/inscription'] = sig_info['inscription']
+        record['Signature location']   = sig_info['location']
+        record['Lot No (source)']      = lot_no
+        record['Original_Title']       = title_raw
+        record['Original_Description'] = desc
         records.append(record)
 
     return pd.DataFrame(records)
@@ -606,5 +705,5 @@ print(f"Low   (<50%):         {(conf < 50).sum()} records  <- prioritise for hum
 
 print(f"\n--- Lowest confidence records (review first) ---")
 low = final_df.nsmallest(10, 'Confidence (%)')
-print(low[['Lot No (source)', 'Name', 'Confidence (%)',
+print(low[['Lot No (source)', 'Artist', 'Confidence (%)',
            'Confidence breakdown']].to_string())
