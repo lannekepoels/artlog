@@ -19,6 +19,7 @@ Set your API key:
 Usage:
   python extract_dataset_B_images.py               # normal run
   python extract_dataset_B_images.py --debug        # inspect 20 sample images, no files written
+  python extract_dataset_B_images.py --survey       # collect all Object Localization labels across the full dataset, no files written
 """
 
 import argparse
@@ -232,6 +233,57 @@ def run_debug(client, image_files: list) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Survey mode
+# ---------------------------------------------------------------------------
+
+def run_survey(client, image_files: list) -> None:
+    from collections import defaultdict
+
+    label_counts = defaultdict(int)
+    label_scores = defaultdict(float)
+
+    total = len(image_files)
+    for i, img_path in enumerate(image_files, start=1):
+        print(f"  [{i}/{total}] {img_path.name}", end="\r", flush=True)
+        with open(img_path, "rb") as f:
+            content = f.read()
+        vision_image = vision.Image(content=content)
+        try:
+            response = client.object_localization(image=vision_image)
+            time.sleep(REQUEST_DELAY)
+        except Exception as exc:
+            print(f"\n  [WARN] {img_path.name}: API error — {exc}")
+            continue
+
+        for obj in response.localized_object_annotations:
+            label_counts[obj.name] += 1
+            label_scores[obj.name] += obj.score
+
+    print()  # newline after progress line
+
+    if not label_counts:
+        print("No labels returned across all images.")
+        return
+
+    col_label = max(len(lbl) for lbl in label_counts) + 2
+    col_label = max(col_label, 20)
+
+    header = f"{'Label':<{col_label}} {'Count':>7}  {'Avg confidence':>14}"
+    print()
+    print(f"Survey results — {total} images from {INPUT_DIR}")
+    print("=" * len(header))
+    print(header)
+    print("-" * len(header))
+
+    for label, count in sorted(label_counts.items(), key=lambda x: -x[1]):
+        avg_score = label_scores[label] / count
+        print(f"{label:<{col_label}} {count:>7}  {avg_score:>14.3f}")
+
+    print("=" * len(header))
+    print(f"Unique labels: {len(label_counts)}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -241,6 +293,11 @@ def main():
         "--debug",
         action="store_true",
         help=f"Print detection table for {DEBUG_SAMPLE_SIZE} sample images; no files written.",
+    )
+    parser.add_argument(
+        "--survey",
+        action="store_true",
+        help="Collect all Object Localization labels across the full dataset; print a frequency table. No files written.",
     )
     args = parser.parse_args()
 
@@ -264,6 +321,10 @@ def main():
 
     if args.debug:
         run_debug(client, image_files)
+        return
+
+    if args.survey:
+        run_survey(client, image_files)
         return
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
