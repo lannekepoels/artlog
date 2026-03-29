@@ -2,13 +2,18 @@
 Extract artwork image regions from scanned catalogue pages using Google Cloud Vision API.
 
 Strategy:
-  1. Object Localization — keep boxes whose label matches art-related terms
-  2. Crop Hints fallback — used when no art objects are detected
-  3. Full-page fallback — saved as {stem}_full.jpg if neither produces results or on API error
+  1. Object Localization — two-tier label matching:
+       DIRECT_ART_TERMS  — labels that directly identify an artwork (painting, print, …)
+       SUBJECT_TERMS     — labels that strongly suggest artwork content (bird, vase, person, …)
+  2. If a DIRECT_ART label is found above MIN_OBJ_SCORE → crop that region.
+     If a DIRECT_ART label exists but below threshold → try Crop Hints fallback.
+     If only SUBJECT_TERMS labels are found → save full page to subject_detected/ for review.
+     If no detections or only unrelated labels → save full page to fallbacks/.
 
 Input:  ./input/*.jpg
 Output: ./output/{stem}_crop_1.jpg, {stem}_crop_2.jpg, ...
-        ./output/fallbacks/{stem}_full.jpg  (fallback pages)
+        ./output/subject_detected/{stem}_full.jpg  (subject-only pages for review)
+        ./output/fallbacks/{stem}_full.jpg          (truly unrelated or empty pages)
 
 Install dependencies:
   pip install google-cloud-vision pillow opencv-python
@@ -38,6 +43,7 @@ from google.cloud import vision
 INPUT_DIR    = Path("data/dataset_B")
 OUTPUT_DIR   = Path("data/dataset_B_images")
 FALLBACK_DIR = OUTPUT_DIR / "fallbacks"
+SUBJECT_DIR  = OUTPUT_DIR / "subject_detected"
 
 MIN_CROP_PX       = 100    # minimum width/height of a crop in pixels
 MIN_VARIANCE      = 500    # minimum pixel variance (rejects blank/near-solid regions)
@@ -46,14 +52,19 @@ REQUEST_DELAY     = 0.1    # seconds between API calls
 
 DEBUG_SAMPLE_SIZE = 20     # number of images to inspect in --debug mode
 
-ART_TERMS = {
+# Labels that directly identify an artwork — crop when found above MIN_OBJ_SCORE
+DIRECT_ART_TERMS = {
     "painting", "artwork", "illustration", "picture",
     "photograph", "poster", "print", "drawing", "sculpture",
     "picture frame",
 }
 
-# If the top detection is one of these, skip crop hints and save the whole page
-PERSON_CLOTHING_TERMS = {"person", "clothing"}
+# Labels that strongly suggest the page contains artwork — save full page to subject_detected/
+SUBJECT_TERMS = {
+    "person", "clothing",
+    "bird", "animal", "boat", "tableware", "owl", "horse",
+    "jug", "vase", "bowl", "fruit", "food", "bottle",
+}
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
@@ -62,16 +73,13 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 # Helpers
 # ---------------------------------------------------------------------------
 
-def is_art_label(label: str) -> bool:
+def is_direct_art_label(label: str) -> bool:
     label_lower = label.lower()
-    return any(term in label_lower for term in ART_TERMS)
+    return any(term in label_lower for term in DIRECT_ART_TERMS)
 
 
-def top_is_person_or_clothing(detections) -> bool:
-    """Return True if the highest-confidence detection is Person or Clothing."""
-    if not detections:
-        return False
-    return detections[0].name.lower() in PERSON_CLOTHING_TERMS
+def is_subject_label(label: str) -> bool:
+    return label.lower() in SUBJECT_TERMS
 
 
 def is_valid_crop(crop_bgr: np.ndarray) -> bool:
@@ -109,11 +117,17 @@ def crop_and_save(image_bgr: np.ndarray, boxes: list, stem: str) -> int:
     return saved
 
 
+def save_subject_page(image_bgr: np.ndarray, stem: str) -> None:
+    out_path = SUBJECT_DIR / f"{stem}_full.jpg"
+    cv2.imwrite(str(out_path), image_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+
 def localized_boxes_to_pixels(objects, img_w: int, img_h: int) -> list:
-    """Convert Vision API normalized vertices to pixel (x1,y1,x2,y2) tuples."""
+    """Convert Vision API normalized vertices to pixel (x1,y1,x2,y2) tuples.
+    Only includes DIRECT_ART_TERMS detections above MIN_OBJ_SCORE."""
     boxes = []
     for obj in objects:
-        if not is_art_label(obj.name):
+        if not is_direct_art_label(obj.name):
             continue
         if obj.score < MIN_OBJ_SCORE:
             continue
@@ -145,17 +159,15 @@ def run_debug(client, image_files: list) -> None:
     col_file  = 22
     col_label = 16
     col_score = 7
-    col_art   = 7
-    col_fb    = 12
-    col_full  = 10
+    col_tier  = 7    # "direct" / "subj" / "-"
+    col_dest  = 18   # destination folder decision
 
     header = (
         f"{'File':<{col_file}} "
         f"{'ObjLoc label':<{col_label}} "
         f"{'Score':>{col_score}} "
-        f"{'Art?':<{col_art}} "
-        f"{'Fallback':<{col_fb}} "
-        f"{'Full page':<{col_full}}"
+        f"{'Tier':<{col_tier}} "
+        f"{'Destination':<{col_dest}}"
     )
     divider = "-" * len(header)
 
@@ -177,59 +189,64 @@ def run_debug(client, image_files: list) -> None:
 
         detections = obj_response.localized_object_annotations
         all_labels = [(obj.name, obj.score) for obj in detections]
-        art_above  = [(n, s) for n, s in all_labels if is_art_label(n) and s >= MIN_OBJ_SCORE]
-        any_art    = any(is_art_label(n) for n, _ in all_labels)
+        direct_above = [(n, s) for n, s in all_labels if is_direct_art_label(n) and s >= MIN_OBJ_SCORE]
+        any_direct   = any(is_direct_art_label(n) for n, _ in all_labels)
+        any_subject  = any(is_subject_label(n) for n, _ in all_labels)
 
         # Mirror the main-loop decision logic
-        if art_above:
-            fallback_col = ""
-            full_col     = ""
+        if direct_above:
+            dest = "crop"
         elif not detections:
-            fallback_col = ""
-            full_col     = "YES (no detections)"
-        elif top_is_person_or_clothing(detections):
-            fallback_col = ""
-            full_col     = "YES (person/clothing)"
-        elif any_art:
-            fallback_col = "crop hints"
-            full_col     = ""
+            dest = "fallbacks/ (no detections)"
+        elif any_direct:
+            dest = "crop hints"
+        elif any_subject:
+            dest = "subject_detected/"
         else:
-            fallback_col = ""
-            full_col     = "YES (no art labels)"
+            dest = "fallbacks/ (unrelated)"
 
         if all_labels:
             first_name, first_score = all_labels[0]
-            art_flag = "YES" if (is_art_label(first_name) and first_score >= MIN_OBJ_SCORE) else "no"
+            if is_direct_art_label(first_name):
+                tier = "direct"
+            elif is_subject_label(first_name):
+                tier = "subj"
+            else:
+                tier = "-"
             print(
                 f"{img_path.name:<{col_file}} "
                 f"{first_name:<{col_label}} "
                 f"{first_score:>{col_score}.3f} "
-                f"{art_flag:<{col_art}} "
-                f"{fallback_col:<{col_fb}} "
-                f"{full_col:<{col_full}}"
+                f"{tier:<{col_tier}} "
+                f"{dest:<{col_dest}}"
             )
             for name, score in all_labels[1:]:
-                art_flag = "YES" if (is_art_label(name) and score >= MIN_OBJ_SCORE) else "no"
+                if is_direct_art_label(name):
+                    tier = "direct"
+                elif is_subject_label(name):
+                    tier = "subj"
+                else:
+                    tier = "-"
                 print(
                     f"{'':>{col_file}} "
                     f"{name:<{col_label}} "
                     f"{score:>{col_score}.3f} "
-                    f"{art_flag:<{col_art}}"
+                    f"{tier:<{col_tier}}"
                 )
         else:
             print(
                 f"{img_path.name:<{col_file}} "
                 f"{'(none)':<{col_label}} "
                 f"{'':>{col_score}} "
-                f"{'':>{col_art}} "
-                f"{fallback_col:<{col_fb}} "
-                f"{full_col:<{col_full}}"
+                f"{'':>{col_tier}} "
+                f"{dest:<{col_dest}}"
             )
 
         print(divider)
 
-    print(f"\nART_TERMS filter: {sorted(ART_TERMS)}")
-    print(f"MIN_OBJ_SCORE   : {MIN_OBJ_SCORE}")
+    print(f"\nDIRECT_ART_TERMS : {sorted(DIRECT_ART_TERMS)}")
+    print(f"SUBJECT_TERMS    : {sorted(SUBJECT_TERMS)}")
+    print(f"MIN_OBJ_SCORE    : {MIN_OBJ_SCORE}")
 
 
 # ---------------------------------------------------------------------------
@@ -329,14 +346,17 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     FALLBACK_DIR.mkdir(parents=True, exist_ok=True)
+    SUBJECT_DIR.mkdir(parents=True, exist_ok=True)
 
-    pages_processed   = 0
-    pages_skipped     = 0
-    crops_obj_loc     = 0   # crops from Object Localization
-    crops_crop_hints  = 0   # crops from Crop Hints fallback
-    full_no_detection = 0   # full-page: no regions detected
-    full_filtered     = 0   # full-page: all crops filtered out
-    full_api_error    = 0   # full-page: API error
+    pages_processed  = 0
+    pages_skipped    = 0
+    crops_obj_loc    = 0   # crops from Object Localization
+    crops_crop_hints = 0   # crops from Crop Hints fallback
+    full_subject     = 0   # full-page saved to subject_detected/
+    full_filtered    = 0   # full-page: direct art found but all crops filtered out
+    full_no_detect   = 0   # full-page: no detections at all
+    full_unrelated   = 0   # full-page: only unrelated labels
+    full_api_error   = 0   # full-page: API error
 
     for img_path in image_files:
         stem = img_path.stem
@@ -363,28 +383,23 @@ def main():
             obj_response = client.object_localization(image=vision_image)
             time.sleep(REQUEST_DELAY)
 
-            detections = obj_response.localized_object_annotations
-            art_boxes  = localized_boxes_to_pixels(detections, img_w, img_h)
-            any_art    = any(is_art_label(obj.name) for obj in detections)
+            detections   = obj_response.localized_object_annotations
+            direct_boxes = localized_boxes_to_pixels(detections, img_w, img_h)
+            any_direct   = any(is_direct_art_label(obj.name) for obj in detections)
+            any_subject  = any(is_subject_label(obj.name) for obj in detections)
 
-            if art_boxes:
-                # Art detected above confidence threshold — crop directly
-                saved  = crop_and_save(image_bgr, art_boxes, stem)
+            if direct_boxes:
+                # DIRECT_ART label above threshold — crop directly
+                saved  = crop_and_save(image_bgr, direct_boxes, stem)
                 source = "object localization"
             elif not detections:
-                # Nothing detected at all — full page, no crop hints
+                # Nothing detected at all — fallback
                 save_full_page(image_bgr, stem)
-                full_no_detection += 1
-                print(f"  [FULL] {img_path.name} — no detections at all")
+                full_no_detect += 1
+                print(f"  [FALL] {img_path.name} — no detections at all")
                 continue
-            elif top_is_person_or_clothing(detections):
-                # Page is dominated by people/clothing — full page, no crop hints
-                save_full_page(image_bgr, stem)
-                full_no_detection += 1
-                print(f"  [FULL] {img_path.name} — top detection is person/clothing ({detections[0].name})")
-                continue
-            elif any_art:
-                # Art labels exist but below confidence threshold — use crop hints
+            elif any_direct:
+                # DIRECT_ART label exists but below confidence threshold — try crop hints
                 crop_response = client.crop_hints(image=vision_image)
                 time.sleep(REQUEST_DELAY)
                 hint_boxes = crop_hint_boxes_to_pixels(
@@ -395,20 +410,28 @@ def main():
                     source = "crop hints"
                 else:
                     save_full_page(image_bgr, stem)
-                    full_no_detection += 1
-                    print(f"  [FULL] {img_path.name} — art below threshold, no crop hints returned")
+                    full_no_detect += 1
+                    print(f"  [FALL] {img_path.name} — direct art below threshold, no crop hints returned")
                     continue
+            elif any_subject:
+                # Only SUBJECT_TERMS labels — save full page for manual review
+                save_subject_page(image_bgr, stem)
+                full_subject += 1
+                top_label = detections[0].name
+                print(f"  [SUBJ] {img_path.name} — subject labels only (top: {top_label})")
+                continue
             else:
-                # Detections exist but none are art-related — full page
+                # Detections exist but entirely unrelated to artwork — fallback
                 save_full_page(image_bgr, stem)
-                full_no_detection += 1
-                print(f"  [FULL] {img_path.name} — no art-related detections")
+                full_unrelated += 1
+                top_label = detections[0].name
+                print(f"  [FALL] {img_path.name} — unrelated labels only (top: {top_label})")
                 continue
 
             if saved == 0:
                 save_full_page(image_bgr, stem)
                 full_filtered += 1
-                print(f"  [FULL] {img_path.name} — all crops filtered out ({source})")
+                print(f"  [FALL] {img_path.name} — all crops filtered out ({source})")
             else:
                 if source == "object localization":
                     crops_obj_loc += saved
@@ -422,21 +445,24 @@ def main():
             full_api_error += 1
 
     total_crops     = crops_obj_loc + crops_crop_hints
-    total_fallbacks = full_no_detection + full_filtered + full_api_error
+    total_fallbacks = full_no_detect + full_unrelated + full_filtered + full_api_error
 
     print()
     print("=" * 50)
-    print(f"Pages processed        : {pages_processed}")
-    print(f"Pages skipped          : {pages_skipped}")
-    print(f"Crops saved (total)    : {total_crops}")
+    print(f"Pages processed          : {pages_processed}")
+    print(f"Pages skipped            : {pages_skipped}")
+    print(f"Crops saved (total)      : {total_crops}")
     print(f"  from object localization : {crops_obj_loc}")
     print(f"  from crop hints          : {crops_crop_hints}")
-    print(f"Full-page fallbacks    : {total_fallbacks}")
-    print(f"  no detection             : {full_no_detection}")
+    print(f"Subject detected (review): {full_subject}")
+    print(f"Fallbacks (total)        : {total_fallbacks}")
+    print(f"  no detections            : {full_no_detect}")
+    print(f"  unrelated labels         : {full_unrelated}")
     print(f"  all crops filtered       : {full_filtered}")
     print(f"  API error                : {full_api_error}")
-    print(f"Output folder          : {OUTPUT_DIR.resolve()}")
-    print(f"Fallbacks folder       : {FALLBACK_DIR.resolve()}")
+    print(f"Output folder            : {OUTPUT_DIR.resolve()}")
+    print(f"Subject detected folder  : {SUBJECT_DIR.resolve()}")
+    print(f"Fallbacks folder         : {FALLBACK_DIR.resolve()}")
     print("=" * 50)
 
 
