@@ -10,8 +10,8 @@ from typing import Optional
  
 # ====== CONFIGURATION ======
 API_KEY = "AIzaSyDd5iLsb7BZq8cgrxFnPpU79_NZz4IpEzg"
-IMAGE_FOLDER = "/Users/yiliupeng/Downloads/ERP-sample_assets"
-OUTPUT_EXCEL = os.path.expanduser("~/Desktop/artwork-validator/metadata/extracted_entries.xlsx")
+IMAGE_FOLDER = ""
+OUTPUT_EXCEL = os.path.expanduser("")
 MAX_IMAGES = 10
 DELAY_BETWEEN_REQUESTS = 20
  
