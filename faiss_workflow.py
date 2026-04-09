@@ -1,9 +1,13 @@
 """
-FAISS workflow: vectorize secondary images, build indices, match against primary.
+Full pipeline: vectorize images → build FAISS indices → match secondary against primary.
 
-Prerequisites: run vectorize_images.py --dataset primary first.
+Usage:
+  python faiss_workflow.py                  # vectorize both datasets + match
+  python faiss_workflow.py --skip-vectorize # skip vectorization (use existing NPZ files)
 
 Outputs (data/vectors/):
+  image_vectors.npz / image_vectors.json   (primary)
+  image_vectors_secondary.npz              (secondary)
   primary.faiss / primary_names.npy
   secondary.faiss / secondary_names.npy
   matches_faiss.csv
@@ -14,6 +18,7 @@ import os
 import gc
 import csv
 import json
+import argparse
 import numpy as np
 import torch
 import torchvision.transforms as T
@@ -30,19 +35,30 @@ THRESHOLD = 0.80
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
 VECTORS_DIR     = os.path.join(BASE_DIR, 'data', 'vectors')
-SECONDARY_DIR   = os.path.join(BASE_DIR, 'data', 'dataset_A_images_secondary')
-PRIMARY_NPZ     = os.path.join(VECTORS_DIR, 'image_vectors.npz')
-PRIMARY_INDEX   = os.path.join(VECTORS_DIR, 'primary.faiss')
-PRIMARY_NAMES   = os.path.join(VECTORS_DIR, 'primary_names.npy')
-SECONDARY_INDEX = os.path.join(VECTORS_DIR, 'secondary.faiss')
-SECONDARY_NAMES = os.path.join(VECTORS_DIR, 'secondary_names.npy')
+
+DATASETS = {
+    'primary': {
+        'images_dir': os.path.join(BASE_DIR, 'data', 'dataset_A_images_primary'),
+        'npz_out':    os.path.join(VECTORS_DIR, 'image_vectors.npz'),
+        'json_out':   os.path.join(VECTORS_DIR, 'image_vectors.json'),
+        'index_out':  os.path.join(VECTORS_DIR, 'primary.faiss'),
+        'names_out':  os.path.join(VECTORS_DIR, 'primary_names.npy'),
+    },
+    'secondary': {
+        'images_dir': os.path.join(BASE_DIR, 'data', 'dataset_A_images_secondary'),
+        'npz_out':    os.path.join(VECTORS_DIR, 'image_vectors_secondary.npz'),
+        'json_out':   None,
+        'index_out':  os.path.join(VECTORS_DIR, 'secondary.faiss'),
+        'names_out':  os.path.join(VECTORS_DIR, 'secondary_names.npy'),
+    },
+}
 
 DINOV2_MODEL = 'dinov2_vitb14'
 BATCH_SIZE   = 16
 DEVICE       = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
 
 # ============================================================
-# STEP 1: VECTORIZE SECONDARY IMAGES (in-memory)
+# IMAGE PREPROCESSING
 # ============================================================
 
 transform = T.Compose([
@@ -61,78 +77,70 @@ def load_image(path: str) -> torch.Tensor | None:
         return None
 
 
-print(f"[1/3] Vectorising secondary images with {DINOV2_MODEL} on {DEVICE}...")
-model = torch.hub.load('facebookresearch/dinov2', DINOV2_MODEL)
-model.eval().to(DEVICE)
+# ============================================================
+# STEP 1: VECTORIZE
+# ============================================================
 
-image_paths = (sorted(Path(SECONDARY_DIR).glob('*.jpeg')) +
-               sorted(Path(SECONDARY_DIR).glob('*.jpg')) +
-               sorted(Path(SECONDARY_DIR).glob('*.png')))
-print(f"  Found {len(image_paths)} images")
+def vectorize(model, images_dir: str) -> tuple[list[str], np.ndarray]:
+    image_paths = (sorted(Path(images_dir).glob('*.jpeg')) +
+                   sorted(Path(images_dir).glob('*.jpg')) +
+                   sorted(Path(images_dir).glob('*.png')))
+    print(f"  Found {len(image_paths)} images in {images_dir}")
 
-sec_names: list[str] = []
-sec_vectors: list[np.ndarray] = []
-batch_names: list[str] = []
-batch_tensors: list[torch.Tensor] = []
+    all_names: list[str] = []
+    all_vecs: list[np.ndarray] = []
+    batch_names: list[str] = []
+    batch_tensors: list[torch.Tensor] = []
+
+    def flush_batch():
+        if not batch_tensors:
+            return
+        batch = torch.stack(batch_tensors).to(DEVICE)
+        with torch.no_grad():
+            embeddings = model(batch).cpu().numpy()
+        for name, vec in zip(batch_names, embeddings):
+            all_names.append(name)
+            all_vecs.append(vec)
+        batch_names.clear()
+        batch_tensors.clear()
+
+    for i, path in enumerate(image_paths):
+        tensor = load_image(str(path))
+        if tensor is None:
+            continue
+        batch_names.append(path.name)
+        batch_tensors.append(tensor)
+        if len(batch_tensors) >= BATCH_SIZE:
+            flush_batch()
+            print(f"  Processed {i + 1}/{len(image_paths)}")
+
+    flush_batch()
+    print(f"  Processed {len(all_names)}/{len(image_paths)} images")
+
+    if not all_names:
+        return [], np.empty((0,), dtype=np.float32)
+
+    matrix = normalize(np.stack(all_vecs), norm='l2').astype(np.float32)
+    return all_names, matrix
 
 
-def flush():
-    if not batch_tensors:
-        return
-    batch = torch.stack(batch_tensors).to(DEVICE)
-    with torch.no_grad():
-        emb = model(batch).cpu().numpy()
-    for name, vec in zip(batch_names, emb):
-        sec_names.append(name)
-        sec_vectors.append(vec)
-    batch_names.clear()
-    batch_tensors.clear()
+def save_vectors(names: list[str], matrix: np.ndarray, cfg: dict):
+    np.savez_compressed(cfg['npz_out'], **dict(zip(names, matrix)))
+    print(f"  Saved NPZ → {cfg['npz_out']}")
 
+    if cfg['json_out']:
+        with open(cfg['json_out'], 'w') as f:
+            json.dump({n: matrix[i].tolist() for i, n in enumerate(names)}, f)
+        print(f"  Saved JSON → {cfg['json_out']}")
 
-for i, path in enumerate(image_paths):
-    t = load_image(str(path))
-    if t is None:
-        continue
-    batch_names.append(path.name)
-    batch_tensors.append(t)
-    if len(batch_tensors) >= BATCH_SIZE:
-        flush()
-        print(f"  {i + 1}/{len(image_paths)}")
+    print(f"  Embedding dimension: {matrix.shape[1]}  |  Total: {len(names)}")
 
-flush()
-print(f"  {len(sec_names)}/{len(image_paths)} images embedded")
-
-sec_matrix = normalize(np.stack(sec_vectors), norm='l2').astype(np.float32)
-
-# Free GPU/MPS memory before loading FAISS
-del model, batch_tensors, sec_vectors
-gc.collect()
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-elif torch.backends.mps.is_available():
-    torch.mps.empty_cache()
 
 # ============================================================
 # STEP 2: BUILD FAISS INDICES
 # ============================================================
 
-os.makedirs(VECTORS_DIR, exist_ok=True)
-
-
-def build_index_from_npz(npz_path: str, index_path: str, names_path: str, label: str):
-    print(f"  Indexing {label}...")
-    data   = np.load(npz_path)
-    names  = list(data.files)
-    matrix = normalize(np.stack([data[n] for n in names]), norm='l2').astype(np.float32)
-    index  = faiss.IndexFlatIP(matrix.shape[1])
-    index.add(matrix)
-    faiss.write_index(index, index_path)
-    np.save(names_path, np.array(names))
-    print(f"    {len(names)} vectors → {index_path}")
-    return index, names, matrix
-
-
-def build_index_from_matrix(matrix: np.ndarray, names: list, index_path: str, names_path: str, label: str):
+def build_index(matrix: np.ndarray, names: list[str], index_path: str, names_path: str, label: str):
     print(f"  Indexing {label}...")
     index = faiss.IndexFlatIP(matrix.shape[1])
     index.add(matrix)
@@ -142,56 +150,120 @@ def build_index_from_matrix(matrix: np.ndarray, names: list, index_path: str, na
     return index
 
 
-print("\n[2/3] Building FAISS indices...")
-primary_index, primary_names, _ = build_index_from_npz(PRIMARY_NPZ, PRIMARY_INDEX, PRIMARY_NAMES, 'primary')
-secondary_index = build_index_from_matrix(sec_matrix, sec_names, SECONDARY_INDEX, SECONDARY_NAMES, 'secondary')
+def load_index_from_npz(npz_path: str, index_path: str, names_path: str, label: str):
+    print(f"  Loading {label} from {npz_path}...")
+    data   = np.load(npz_path)
+    names  = list(data.files)
+    matrix = normalize(np.stack([data[n] for n in names]), norm='l2').astype(np.float32)
+    return build_index(matrix, names, index_path, names_path, label), names, matrix
+
 
 # ============================================================
-# STEP 3: MATCH SECONDARY AGAINST PRIMARY
+# STEP 3: MATCH
 # ============================================================
 
-print(f"\n[3/3] Matching secondary against primary (threshold={THRESHOLD})...")
-scores, indices = primary_index.search(sec_matrix, k=1)   # (M, 1)
+def match_and_save(primary_index, primary_names, sec_matrix, sec_names):
+    print(f"\n[3/3] Matching secondary against primary (threshold={THRESHOLD})...")
+    scores, indices = primary_index.search(sec_matrix, k=1)
 
-matches, no_match = [], []
-for i, sec_name in enumerate(sec_names):
-    sim      = float(scores[i, 0])
-    pri_name = primary_names[indices[i, 0]]
-    record   = {
-        'secondary_image': sec_name,
-        'primary_match':   pri_name,
-        'similarity':      f"{sim:.4f}",
-    }
-    (matches if sim >= THRESHOLD else no_match).append(record)
+    matches, no_match = [], []
+    for i, sec_name in enumerate(sec_names):
+        sim      = float(scores[i, 0])
+        pri_name = primary_names[indices[i, 0]]
+        record   = {
+            'secondary_image': sec_name,
+            'primary_match':   pri_name,
+            'similarity':      f"{sim:.4f}",
+        }
+        (matches if sim >= THRESHOLD else no_match).append(record)
 
-matches.sort(key=lambda x: x['similarity'], reverse=True)
+    matches.sort(key=lambda x: x['similarity'], reverse=True)
 
-print(f"  Above threshold : {len(matches)}")
-print(f"  Below threshold : {len(no_match)}")
+    print(f"  Above threshold : {len(matches)}")
+    print(f"  Below threshold : {len(no_match)}")
 
-if matches:
-    print(f"\n{'Secondary image':<40} {'Primary match':<40} {'Score':>6}")
-    print('-' * 88)
-    for m in matches:
-        print(f"  {m['secondary_image']:<38} {m['primary_match']:<38} {m['similarity']:>6}")
-else:
-    print("\nNo matches above threshold.")
+    if matches:
+        print(f"\n{'Secondary image':<40} {'Primary match':<40} {'Score':>6}")
+        print('-' * 88)
+        for m in matches:
+            print(f"  {m['secondary_image']:<38} {m['primary_match']:<38} {m['similarity']:>6}")
+    else:
+        print("\nNo matches above threshold.")
+
+    csv_path  = os.path.join(VECTORS_DIR, 'matches_faiss.csv')
+    json_path = os.path.join(VECTORS_DIR, 'matches_faiss.json')
+
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['secondary_image', 'primary_match', 'similarity'])
+        writer.writeheader()
+        writer.writerows(matches)
+
+    with open(json_path, 'w') as f:
+        json.dump({'matches': matches, 'no_match': no_match}, f, indent=2)
+
+    print(f"\nSaved → {csv_path}")
+    print(f"Saved → {json_path}")
+
 
 # ============================================================
-# SAVE RESULTS
+# MAIN
 # ============================================================
 
-csv_path  = os.path.join(VECTORS_DIR, 'matches_faiss.csv')
-json_path = os.path.join(VECTORS_DIR, 'matches_faiss.json')
+def main():
+    parser = argparse.ArgumentParser(description='Vectorize images and match with FAISS')
+    parser.add_argument('--skip-vectorize', action='store_true',
+                        help='Skip vectorization and use existing NPZ files')
+    args = parser.parse_args()
 
-with open(csv_path, 'w', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=['secondary_image', 'primary_match', 'similarity'])
-    writer.writeheader()
-    writer.writerows(matches)
+    os.makedirs(VECTORS_DIR, exist_ok=True)
 
-with open(json_path, 'w') as f:
-    json.dump({'matches': matches, 'no_match': no_match}, f, indent=2)
+    dataset_vectors: dict[str, tuple[list[str], np.ndarray]] = {}
 
-print(f"\nSaved → {csv_path}")
-print(f"Saved → {json_path}")
-print("\nDone.")
+    if args.skip_vectorize:
+        print("[1/3] Skipping vectorization — loading existing NPZ files...")
+        for name, cfg in DATASETS.items():
+            if not os.path.exists(cfg['npz_out']):
+                raise FileNotFoundError(f"NPZ not found: {cfg['npz_out']}. Run without --skip-vectorize first.")
+            data   = np.load(cfg['npz_out'])
+            names  = list(data.files)
+            matrix = normalize(np.stack([data[n] for n in names]), norm='l2').astype(np.float32)
+            dataset_vectors[name] = (names, matrix)
+            print(f"  Loaded {len(names)} vectors for {name}")
+    else:
+        print(f"[1/3] Vectorising images with {DINOV2_MODEL} on {DEVICE}...")
+        model = torch.hub.load('facebookresearch/dinov2', DINOV2_MODEL)
+        model.eval().to(DEVICE)
+
+        for name, cfg in DATASETS.items():
+            print(f"\n  [{name}]")
+            names, matrix = vectorize(model, cfg['images_dir'])
+            if len(names) == 0:
+                raise RuntimeError(f"No images could be embedded for {name}.")
+            save_vectors(names, matrix, cfg)
+            dataset_vectors[name] = (names, matrix)
+
+        # Free GPU/MPS memory before FAISS
+        del model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+
+    print("\n[2/3] Building FAISS indices...")
+    indices = {}
+    for name, cfg in DATASETS.items():
+        names, matrix = dataset_vectors[name]
+        idx = build_index(matrix, names, cfg['index_out'], cfg['names_out'], name)
+        indices[name] = idx
+
+    pri_names, _ = dataset_vectors['primary']
+    sec_names, sec_matrix = dataset_vectors['secondary']
+
+    match_and_save(indices['primary'], pri_names, sec_matrix, sec_names)
+
+    print("\nDone.")
+
+
+if __name__ == '__main__':
+    main()
