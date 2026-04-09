@@ -1,0 +1,779 @@
+"""
+================================================================================
+RKD AUCTION IMAGE PIPELINE
+================================================================================
+What this script does:
+  1. Takes a folder of scanned auction images
+  2. Uses Google Vision AI to:
+       A) Find and crop just the artwork portion of each image
+       B) Read all the text on the page (OCR)
+  3. Maps the extracted text onto RKD database fields
+  4. Exports a CSV ready for human review in Label Studio
+
+--------------------------------------------------------------------------------
+SETUP
+--------------------------------------------------------------------------------
+  pip install pillow pandas requests
+
+  Then run:
+    python rkd_pipeline.py
+================================================================================
+"""
+
+import os
+import re
+import io
+import shutil
+import base64
+import requests
+import pandas as pd
+from pathlib import Path
+from PIL import Image
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+INPUT_FOLDER   = "/Users/macbookpro/Downloads/ERP-sample_assets"
+OUTPUT_FOLDER  = "/Users/macbookpro/Downloads/ERP-output"
+GOOGLE_API_KEY = "AIzaSyC7IP5ICSg6cDvilNiwnkoxQp9tOKHF0zo"
+MAX_IMAGES     = 300   # set to None to process all images
+
+
+# ============================================================
+# RKD CONTROLLED VOCABULARIES
+# ============================================================
+
+GENRE_KEYWORDS = {
+    'portrait':                ['portrait', 'self-portrait', 'portret', 'bust', 'likeness'],
+    'still life':              ['still life', 'stilleven', 'flowers', 'fruit', 'vase',
+                                'roses', 'bouquet', 'jug', 'pitcher', 'peaches', 'grapes'],
+    'landscape (genre)':       ['landscape', 'landschap', 'forest', 'meadow', 'polder',
+                                'dunes', 'countryside', 'trees', 'village', 'farm',
+                                'shepherd', 'pastoral', 'winter', 'autumn', 'wooded'],
+    'marine (genre)':          ['harbour', 'harbor', 'boats', 'ship', 'sea', 'beach',
+                                'sailing', 'fishing', 'river', 'canal', 'coastal'],
+    'cityscape':               ['cityscape', 'city', 'street', 'town', 'amsterdam',
+                                'rotterdam', 'urban', 'buildings'],
+    'figure':                  ['figure', 'nude', 'woman', 'man', 'child', 'people',
+                                'figures', 'bathing', 'seated', 'standing', 'reclining',
+                                'girl', 'boy', 'mother', 'family'],
+    'animal painting (genre)': ['cat', 'dog', 'horse', 'cow', 'animal', 'bird',
+                                'kittens', 'peacock', 'chickens', 'sheep', 'cows'],
+    'interior view':           ['interior', 'inn', 'tavern', 'room', 'cafe', 'kitchen',
+                                'bar', 'restaurant', 'terras'],
+    'church interior':         ['church interior', 'cathedral interior'],
+    'history (genre)':         ['biblical', 'mythology', 'allegory', 'angel', 'saint'],
+    'genre':                   ['market', 'fair', 'courting', 'dancing', 'reading',
+                                'gathering', 'museum', 'exhibition', 'retirement',
+                                'bench', 'park'],
+    'abstraction':             ['abstract', 'compositie', 'untitled', 'geometric',
+                                'composition'],
+    'study (visual work)':     ['study', 'sketch', 'studie'],
+    'architecture (genre)':    ['architecture', 'ruins', 'facade', 'tower', 'gate'],
+}
+
+OBJECT_NAME_MAP = [
+    (['oil on canvas', 'oil on panel', 'oil on board', 'oil on paper',
+      'oil on copper', 'oil stick', 'olieverf'],                         'painting'),
+    (['watercolour', 'watercolor', 'aquarel', 'gouache', 'pencil on paper',
+      'chalk on paper', 'charcoal', 'ink on paper', 'pastel on paper',
+      'coloured chalk', 'black chalk', 'pen and ink', 'pen en inkt',
+      'pencil', 'drypoint', 'indian ink', 'sepia', 'oost-indische inkt',
+      'krijt', 'gemengde techniek'],                                      'drawing'),
+    (['etching', 'engraving', 'lithograph', 'colour lithograph'],         'print'),
+    (['bronze', 'paper-mache', 'papier-mache'],                           'sculpture'),
+    (['mixed media'],                                    'needs human review'),
+    (['acrylic on canvas', 'acrylic'],                                    'painting'),
+]
+
+
+# ============================================================
+# PART 1 — GOOGLE VISION API
+# ============================================================
+
+def encode_image_to_base64(image_path: str) -> str:
+    """Resize image to max 1600px and return base64 string."""
+    img = Image.open(image_path)
+    max_side = 1600
+    w, h = img.size
+    if max(w, h) > max_side:
+        scale = max_side / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    if img.mode in ('RGBA', 'P'):
+        img = img.convert('RGB')
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG', quality=85)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+def call_google_vision(image_path: str) -> dict:
+    """Send one image to Google Cloud Vision API (OCR + object detection)."""
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+    payload = {
+        "requests": [{
+            "image": {"content": encode_image_to_base64(image_path)},
+            "features": [
+                {"type": "DOCUMENT_TEXT_DETECTION"},
+                {"type": "OBJECT_LOCALIZATION"},
+            ]
+        }]
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=120)
+    except requests.exceptions.Timeout:
+        print("   Warning: API request timed out")
+        return {}
+
+    if response.status_code != 200:
+        print(f"   Warning: Vision API returned status {response.status_code}")
+        print(f"   Detail: {response.text[:300]}")
+        return {}
+
+    responses = response.json().get("responses", [{}])
+    return responses[0] if responses else {}
+
+
+def extract_full_text(vision_response: dict) -> str:
+    """Pull all OCR text out of the Vision API response."""
+    full_text = vision_response.get("fullTextAnnotation", {}).get("text", "")
+    if full_text:
+        return full_text
+    annotations = vision_response.get("textAnnotations", [])
+    if annotations:
+        return annotations[0].get("description", "")
+    return ""
+
+
+# ============================================================
+# PART 2 — ARTWORK REGION DETECTION & CROPPING
+# ============================================================
+
+def find_artwork_region(vision_response: dict, img_w: int, img_h: int):
+    """
+    Find the artwork region using Vision object labels, or infer from text positions.
+    Returns a single region dict {x, y, w, h, method} or None.
+    """
+    artwork_labels = {'painting', 'picture frame', 'illustration', 'art',
+                      'picture', 'artwork', 'visual arts', 'drawing'}
+    for obj in vision_response.get("localizedObjectAnnotations", []):
+        label = obj.get("name", "").lower()
+        score = obj.get("score", 0)
+        if any(art in label for art in artwork_labels) and score > 0.4:
+            verts = obj["boundingPoly"]["normalizedVertices"]
+            xs = [v.get("x", 0) * img_w for v in verts]
+            ys = [v.get("y", 0) * img_h for v in verts]
+            x, y = int(min(xs)), int(min(ys))
+            w, h = int(max(xs) - min(xs)), int(max(ys) - min(ys))
+            if w > 80 and h > 80:
+                return {"x": x, "y": y, "w": w, "h": h, "method": "vision_object"}
+
+    # Fallback: infer from text block positions
+    full_text_ann = vision_response.get("fullTextAnnotation", {})
+    pages = full_text_ann.get("pages", [])
+    if not pages:
+        return None
+
+    block_tops = []
+    for page in pages:
+        for block in page.get("blocks", []):
+            verts = block.get("boundingBox", {}).get("vertices", [])
+            if verts:
+                block_tops.append(min(v.get("y", img_h) for v in verts))
+
+    if not block_tops:
+        return None
+
+    lower_blocks = [y for y in block_tops if y > img_h * 0.5]
+    label_top    = min(lower_blocks) if lower_blocks else min(block_tops)
+    header_bottom  = int(img_h * 0.12)
+    artwork_bottom = int(label_top - img_h * 0.03)
+    artwork_h      = artwork_bottom - header_bottom
+
+    if artwork_h < 80:
+        return None
+
+    pad = int(img_w * 0.03)
+    return {"x": pad, "y": header_bottom, "w": img_w - 2 * pad,
+            "h": artwork_h, "method": "text_position_inference"}
+
+
+def find_all_artwork_regions(vision_response: dict, img_w: int, img_h: int) -> list:
+    """
+    Returns ALL detected artwork regions (handles pages with 2+ artworks).
+    Falls back to single-region inference if none detected by object labels.
+    """
+    artwork_labels = {'painting', 'picture frame', 'illustration', 'art',
+                      'picture', 'artwork', 'visual arts', 'drawing'}
+    regions = []
+    for obj in vision_response.get("localizedObjectAnnotations", []):
+        label = obj.get("name", "").lower()
+        score = obj.get("score", 0)
+        if any(art in label for art in artwork_labels) and score > 0.4:
+            verts = obj["boundingPoly"]["normalizedVertices"]
+            xs = [v.get("x", 0) * img_w for v in verts]
+            ys = [v.get("y", 0) * img_h for v in verts]
+            x, y = int(min(xs)), int(min(ys))
+            w, h = int(max(xs) - min(xs)), int(max(ys) - min(ys))
+            if w > 80 and h > 80:
+                regions.append({"x": x, "y": y, "w": w, "h": h, "method": "vision_object"})
+
+    if regions:
+        return regions
+
+    single = find_artwork_region(vision_response, img_w, img_h)
+    return [single] if single else []
+
+
+def crop_and_save(image_path: str, region: dict, output_path: str):
+    """Crop the detected artwork region and save it."""
+    img = Image.open(image_path)
+    img_w, img_h = img.size
+    x1 = max(0, region["x"])
+    y1 = max(0, region["y"])
+    x2 = min(img_w, region["x"] + region["w"])
+    y2 = min(img_h, region["y"] + region["h"])
+    img.crop((x1, y1, x2, y2)).save(output_path)
+
+
+# ============================================================
+# PART 3 — TEXT TO RKD FIELD MAPPING
+# ============================================================
+
+def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
+    """
+    Extract RKD fields from raw OCR text.
+    Handles Simonis & Buunk cards, Christie's catalogues, and AAG auction pages.
+    """
+    text  = raw_text.strip()
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    fields = {
+        "Artist":                  "",
+        "Title":                   "",
+        "Date Dutch":              "",
+        "Date English":            "",
+        "Search margin: begin":    "",
+        "Search margin: end":      "",
+        "Object name":             "",
+        "Medium (raw)":            "",
+        "Genre":                   "",
+        "Height":                  "",
+        "Width":                   "",
+        "Unit":                    "cm",
+        "Shape":                   "",
+        "Provenance":              "",
+        "Signature/inscription":   "",
+        "Signature location":      "",
+        # Internal only — used for cross-matching, dropped from CSV
+        "Lot No":                  "",
+        "Inventory number":        "",
+        # Pipeline metadata
+        "Source image":            image_filename,
+        "Raw OCR text":            text,
+        "Needs review":            "",
+    }
+
+    # ---- Inventory / lot numbers (internal) ----
+    inv = re.search(r'\b(\d{4,5}/[\w\.]+)', text)
+    if inv:
+        fields["Inventory number"] = inv.group(1)
+
+    lot = re.search(r'\blot\s*[:#]?\s*(\d+)\b', text, re.IGNORECASE)
+    if not lot:
+        lot = re.search(r'^\s*(\d{2,4})\s*$', text, re.MULTILINE)
+    if lot:
+        fields["Lot No"] = lot.group(1)
+
+    # ---- Artist name ----
+    # Christie's: "HARM KAMERLINGH ONNES (DUTCH, 1893-1985)"
+    chr_artist = re.search(
+        r'([A-Z][A-Z\s\-\.]+?)\s*\((?:DUTCH|FLEMISH|FRENCH|GERMAN|BELGIAN'
+        r'|BRITISH|AMERICAN),?\s*(\d{4})\s*[-–]\s*(\d{4})\)',
+        text
+    )
+    if chr_artist:
+        fields["Artist"] = chr_artist.group(1).strip().title()
+
+    # Dutch auction format: "Harm Kamerlingh Onnes\n(Zoeterwoude 1893 - Leiden 1985)"
+    if not fields["Artist"]:
+        dut = re.search(
+            r'((?:[A-Z][a-z]+\s+){1,4}[A-Z][a-z]+)\n\([A-Za-z]+\s+\d{4}',
+            text
+        )
+        if dut:
+            fields["Artist"] = dut.group(1).strip()
+
+    # Simonis & Buunk: scan lines after inventory number, skip short codes like "cv"
+    if not fields["Artist"] and fields["Inventory number"]:
+        idx = text.find(fields["Inventory number"])
+        if idx != -1:
+            after = text[idx + len(fields["Inventory number"]):].strip()
+            for candidate in after.splitlines()[:6]:
+                candidate = candidate.strip()
+                if (len(candidate) >= 5
+                        and len(candidate.split()) >= 2
+                        and not any(c.isdigit() for c in candidate)
+                        and '@' not in candidate
+                        and 'www.' not in candidate.lower()
+                        and candidate.lower() != candidate):
+                    fields["Artist"] = candidate
+                    break
+
+    # ---- Title ----
+    # Look up to 5 lines after the artist, skipping biographical/filler lines
+    if fields["Artist"]:
+        artist_last = fields["Artist"].split()[-1]
+        for i, line in enumerate(lines):
+            if artist_last in line:
+                for j in range(i + 1, min(i + 6, len(lines))):
+                    cand = lines[j].strip()
+                    if re.match(r'^\(', cand) and re.search(r'\d{4}', cand):
+                        continue   # birthplace/life-dates: "(Zoeterwoude 1893 - Leiden 1985)"
+                    if re.match(r'^(met|with)\s+', cand, re.IGNORECASE):
+                        continue   # filler: "met vriendelijke groeten"
+                    if re.search(
+                            r'\d{2}|\bop\s+papier\b|cm\b|mm\b|olieverf|aquarel'
+                            r'|pencil|oil\b|signed|gesigneerd|monogram',
+                            cand, re.IGNORECASE):
+                        continue   # medium / dimension / signature line
+                    if 2 <= len(cand.split()) <= 8:
+                        fields["Title"] = cand
+                        break
+                break
+
+    # Christie's title: line after "(NATIONALITY, YEAR-YEAR)"
+    if not fields["Title"]:
+        ch_t = re.search(
+            r'\d{4}[-–]\d{4}\)\n(.+?)(?:\n|signed|watercolour|oil|pencil)',
+            text, re.IGNORECASE
+        )
+        if ch_t:
+            fields["Title"] = ch_t.group(1).strip()
+
+    # ---- Medium ----
+    medium_raw = extract_medium_raw(text)
+    fields["Medium (raw)"] = medium_raw
+    fields["Object name"]  = detect_object_name(medium_raw) if medium_raw else "needs human review"
+
+    # ---- Dimensions ----
+    dims = extract_dimensions(text)
+    if dims["height"]:
+        fields["Height"] = dims["height"]
+        fields["Width"]  = dims["width"]
+        fields["Unit"]   = dims["unit"]
+        fields["Shape"]  = dims["shape"]
+
+    # ---- Date ----
+    date_info = extract_date_from_ocr(text)
+    fields.update({
+        "Date Dutch":           date_info["date_dutch"],
+        "Date English":         date_info["date_english"],
+        "Search margin: begin": date_info["margin_begin"],
+        "Search margin: end":   date_info["margin_end"],
+    })
+
+    # ---- Signature ----
+    sig = extract_signature_info(text)
+    fields["Signature/inscription"] = sig["inscription"]
+    fields["Signature location"]    = sig["location"]
+
+    # ---- Provenance ----
+    prov = extract_provenance(text)
+    fields["Provenance"] = prov[0] if prov else ""
+
+    # ---- Genre ----
+    genre_text = (fields["Title"] + " " + text).lower()
+    matched_genres = []
+    for genre, keywords in GENRE_KEYWORDS.items():
+        hits = sum(1 for kw in keywords if kw in genre_text)
+        if hits:
+            matched_genres.append((genre, hits))
+    matched_genres.sort(key=lambda x: -x[1])
+    fields["Genre"] = " | ".join(g for g, _ in matched_genres[:3]) if matched_genres else "undetermined"
+
+    # ---- Default to Anoniem if no artist found ----
+    if not fields["Artist"]:
+        fields["Artist"] = "Anoniem"
+
+    # ---- Flag fields needing human review ----
+    missing = []
+    if fields["Artist"] == "Anoniem": missing.append("artist (Anoniem)")
+    if not fields["Title"]:           missing.append("title")
+    if not fields["Height"]:          missing.append("dimensions")
+    if fields["Object name"] in ("needs human review", ""):
+        missing.append("medium")
+    fields["Needs review"] = ", ".join(missing) if missing else "ok"
+
+    return fields
+
+
+# ============================================================
+# PART 4 — HELPER EXTRACTION FUNCTIONS
+# ============================================================
+
+def extract_medium_raw(text: str) -> str:
+    """Return the raw medium description string from OCR text."""
+    m = re.search(
+        r'((?:olieverf|aquarel|pen|inkt|krijt|potlood|pastel|houtskool|gouache)'
+        r'(?:[\s,]+(?:en\s+)?[\w\-]+)*\s+op\s+(?:papier|doek|paneel|karton))',
+        text, re.IGNORECASE
+    )
+    if m:
+        return m.group(1)
+
+    m = re.search(
+        r'((?:oil|watercolour|watercolor|gouache|pencil|chalk|charcoal|'
+        r'ink|pastel|acrylic|etching|engraving|lithograph)'
+        r'(?:\s+and\s+[\w]+)*\s+on\s+(?:paper|canvas|board|panel|copper))',
+        text, re.IGNORECASE
+    )
+    if m:
+        return m.group(1)
+
+    for keywords, _ in OBJECT_NAME_MAP:
+        for kw in keywords:
+            if kw in text.lower():
+                idx = text.lower().find(kw)
+                return text[max(0, idx - 3): idx + 50].strip()
+
+    return ""
+
+
+def detect_object_name(medium_text: str) -> str:
+    """Map a medium string to an RKD object name category."""
+    desc_lower = medium_text.lower()
+    for keywords, obj_name in OBJECT_NAME_MAP:
+        if any(kw in desc_lower for kw in keywords):
+            return obj_name
+    return "needs human review"
+
+
+def extract_dimensions(text: str) -> dict:
+    """Extract height x width from text (handles comma and dot decimals)."""
+    num     = r'(\d{1,4}(?:[,\.]\d{1,2})?)'
+    sep     = r'\s*[x×]\s*'
+    pattern = re.compile(num + sep + num + r'(?:' + sep + num + r')?\s*(cm|mm)?',
+                         re.IGNORECASE)
+    for m in pattern.finditer(text):
+        try:
+            h = float(m.group(1).replace(',', '.'))
+            w = float(m.group(2).replace(',', '.'))
+            if h < 2 or w < 2 or h > 500 or w > 500:
+                continue
+            unit  = (m.group(4) or 'cm').lower()
+            shape = ('liggende rechthoek' if w > h else
+                     'staande rechthoek'  if h > w else 'vierkant')
+            return {'height': h, 'width': w, 'unit': unit, 'shape': shape}
+        except (ValueError, AttributeError):
+            continue
+    return {'height': None, 'width': None, 'unit': 'cm', 'shape': 'onbekend'}
+
+
+def extract_date_from_ocr(text: str) -> dict:
+    """Extract artwork creation date (not auction date)."""
+    m = re.search(
+        r"(?:gedateerd|dated)\s+['\"]?\s*(['\"]?\d{2,4})['\"]?",
+        text, re.IGNORECASE
+    )
+    if m:
+        raw = re.sub(r"['\"]", "", m.group(1)).strip()
+        try:
+            yr   = int(raw)
+            year = (1900 + yr if yr > 25 else 2000 + yr) if yr < 100 else yr
+            return {
+                'date_dutch':   f'{year} gedateerd',
+                'date_english': f'dated {year}',
+                'margin_begin': year,
+                'margin_end':   year,
+            }
+        except ValueError:
+            pass
+
+    months = r'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mrt|mei|okt'
+    for m in re.finditer(r'\b(1[5-9]\d{2}|20[0-2]\d)\b', text):
+        context = text[max(0, m.start() - 30): m.end() + 30].lower()
+        if not re.search(months, context):
+            return {
+                'date_dutch':   f'{m.group(1)} gedateerd',
+                'date_english': f'dated {m.group(1)}',
+                'margin_begin': int(m.group(1)),
+                'margin_end':   int(m.group(1)),
+            }
+
+    return {'date_dutch': '', 'date_english': '', 'margin_begin': '', 'margin_end': ''}
+
+
+def extract_signature_info(text: str) -> dict:
+    """Extract signature location and type (monogram / signed)."""
+    result = {'inscription': '', 'location': ''}
+    loc_match = re.search(
+        r'(?:gesigneerd|signed)\s+([lrLR]\.[obOB]\.)', text, re.IGNORECASE
+    )
+    if loc_match:
+        loc_raw = loc_match.group(1).lower()
+        loc_map = {'l.o.': 'lower left', 'r.o.': 'lower right',
+                   'l.b.': 'lower left', 'r.b.': 'lower right'}
+        result['location'] = loc_map.get(loc_raw, loc_raw)
+
+    if re.search(r'\b(monogram|monogrammed|met monogram)\b', text, re.IGNORECASE):
+        result['inscription'] = 'monogram'
+    elif re.search(r'\bsigned\b|\bgesigneerd\b', text, re.IGNORECASE):
+        result['inscription'] = 'signed'
+
+    return result
+
+
+def extract_provenance(text: str) -> list:
+    """Extract provenance from text."""
+    m = re.search(r'\bprovenance\s*:\s*', text, re.IGNORECASE)
+    if m:
+        prov_text = text[m.end():]
+        stop = re.search(
+            r'\b(exhibited|literature|bibliography)\s*:', prov_text, re.IGNORECASE
+        )
+        if stop:
+            prov_text = prov_text[:stop.start()]
+        entries = re.split(r'\s*-\s*(?=[A-Z])', prov_text.strip())
+        return [e.strip() for e in entries if e.strip()] or ['']
+
+    if 'simonis' in text.lower() and 'buunk' in text.lower():
+        return ['Simonis & Buunk Kunsthandel, Ede']
+
+    return ['']
+
+
+# ============================================================
+# PART 5 — MAIN PIPELINE
+# ============================================================
+
+def run_pipeline():
+    """Process all images and produce RKD-mapped CSV + crops."""
+
+    if not os.path.isdir(INPUT_FOLDER):
+        print(f"\nERROR: Input folder not found: {INPUT_FOLDER}")
+        return
+
+    crops_dir = os.path.join(OUTPUT_FOLDER, "cropped_artworks")
+    pages_dir = os.path.join(OUTPUT_FOLDER, "full_pages")
+    os.makedirs(crops_dir, exist_ok=True)
+    os.makedirs(pages_dir, exist_ok=True)
+
+    supported_extensions = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp'}
+    image_files = sorted([
+        f for f in Path(INPUT_FOLDER).iterdir()
+        if f.suffix.lower() in supported_extensions
+    ])
+
+    if not image_files:
+        print(f"No image files found in: {INPUT_FOLDER}")
+        return
+
+    if MAX_IMAGES is not None:
+        image_files = image_files[:MAX_IMAGES]
+
+    print(f"\n{'=' * 60}")
+    print("RKD AUCTION IMAGE PIPELINE")
+    print(f"{'=' * 60}")
+    print(f"Input folder:  {INPUT_FOLDER}")
+    print(f"Output folder: {OUTPUT_FOLDER}")
+    print(f"Images found:  {len(image_files)}")
+    print(f"{'=' * 60}\n")
+
+    records = []
+    errors  = []
+
+    for i, img_path in enumerate(image_files, 1):
+        print(f"[{i}/{len(image_files)}] {img_path.name}")
+
+        try:
+            pil_img      = Image.open(str(img_path))
+            img_w, img_h = pil_img.size
+
+            print("   -> Calling Google Vision API...")
+            vision_data = call_google_vision(str(img_path))
+
+            if not vision_data:
+                raise ValueError("Empty response from Vision API")
+
+            ocr_text = extract_full_text(vision_data)
+            n_chars  = len(ocr_text)
+            print(f"   -> OCR: {n_chars} characters extracted")
+            if n_chars < 20:
+                print("   -> Warning: very little text found")
+
+            # Detect artwork region(s) — handles pages with multiple artworks
+            art_regions = find_all_artwork_regions(vision_data, img_w, img_h)
+
+            if not art_regions:
+                crop_filename = img_path.stem + "_artwork" + img_path.suffix
+                crop_path     = os.path.join(crops_dir, crop_filename)
+                pil_img.save(crop_path)
+                art_regions   = [{"x": 0, "y": 0, "w": img_w, "h": img_h,
+                                   "method": "full_page_fallback"}]
+                print("   -> Could not detect artwork region; saved full image")
+
+            multi = len(art_regions) > 1
+            if multi:
+                print(f"   -> {len(art_regions)} artworks detected on this page")
+
+            shutil.copy2(str(img_path), os.path.join(pages_dir, img_path.name))
+
+            for art_idx, region in enumerate(art_regions):
+                suffix        = f"_artwork_{art_idx + 1}" if multi else "_artwork"
+                crop_filename = img_path.stem + suffix + img_path.suffix
+                crop_path     = os.path.join(crops_dir, crop_filename)
+                crop_and_save(str(img_path), region, crop_path)
+                if not multi:
+                    print(f"   -> Artwork cropped using: {region['method']}")
+
+                rkd_fields = map_text_to_rkd_fields(ocr_text, img_path.name)
+                rkd_fields["Image path (original)"] = os.path.join(pages_dir, img_path.name)
+                rkd_fields["Image path (crop)"]     = crop_path
+
+                if multi:
+                    rkd_fields["Source image"] = (
+                        f"{img_path.name} [artwork {art_idx + 1} of {len(art_regions)}]"
+                    )
+                    nr = rkd_fields["Needs review"]
+                    rkd_fields["Needs review"] = (
+                        nr + ", multi-artwork page" if nr != "ok" else "multi-artwork page"
+                    )
+
+                records.append(rkd_fields)
+
+                status = "NEEDS REVIEW" if rkd_fields["Needs review"] != "ok" else "OK"
+                label  = f" [artwork {art_idx + 1}]" if multi else ""
+                print(f"   -> Status{label}:  {status}")
+                if rkd_fields["Needs review"] != "ok":
+                    print(f"      Missing: {rkd_fields['Needs review']}")
+                print(f"      Artist:  {rkd_fields['Artist']}")
+                print(f"      Title:   {rkd_fields['Title'] or '(not found)'}")
+                print(f"      Date:    {rkd_fields['Date English'] or '(not found)'}")
+                print(f"      Medium:  {rkd_fields['Medium (raw)'] or '(not found)'}")
+
+        except Exception as e:
+            print(f"   -> ERROR: {e}")
+            errors.append({"file": img_path.name, "error": str(e)})
+
+        print()
+
+    # --- Post-processing: lot number cross-matching ---
+    lot_metadata = {}
+    for rec in records:
+        lot = rec.get("Lot No", "")
+        if lot and rec.get("Artist") != "Anoniem" and lot not in lot_metadata:
+            lot_metadata[lot] = rec
+
+    merge_fields = ["Artist", "Title", "Medium (raw)", "Object name", "Height", "Width",
+                    "Unit", "Genre", "Signature/inscription", "Signature location",
+                    "Date Dutch", "Date English", "Search margin: begin",
+                    "Search margin: end", "Provenance"]
+    linked = 0
+    for rec in records:
+        lot = rec.get("Lot No", "")
+        if lot and rec.get("Artist") == "Anoniem" and lot in lot_metadata:
+            donor = lot_metadata[lot]
+            for field in merge_fields:
+                if not rec.get(field) and donor.get(field):
+                    rec[field] = donor[field]
+            rec["Needs review"] = rec.get("Needs review", "") + " [linked via lot#]"
+            linked += 1
+    if linked:
+        print(f"\nPost-processing: linked {linked} records via lot number.")
+
+    # --- Post-processing: adjacent page linking ---
+    for rec in records:
+        n = len(rec.get("Raw OCR text", ""))
+        rec["_page_type"] = ("image_only" if n < 60 else
+                             "text_only"  if n > 300 and rec.get("Artist") == "Anoniem"
+                             else "mixed")
+
+    linked_adj = 0
+    for i, rec in enumerate(records):
+        if rec["_page_type"] == "image_only" and rec.get("Artist") == "Anoniem":
+            for neighbor in filter(None, [
+                records[i - 1] if i > 0 else None,
+                records[i + 1] if i + 1 < len(records) else None,
+            ]):
+                if (neighbor.get("Artist") != "Anoniem"
+                        and neighbor["_page_type"] != "image_only"):
+                    for field in ["Artist", "Title", "Medium (raw)", "Object name"]:
+                        if not rec.get(field) and neighbor.get(field):
+                            rec[field] = neighbor[field]
+                    rec["Needs review"] = (
+                        rec.get("Needs review", "") + " [metadata from adjacent page]"
+                    ).strip()
+                    linked_adj += 1
+                    break
+    if linked_adj:
+        print(f"Post-processing: linked {linked_adj} image-only pages to adjacent metadata.")
+
+    for rec in records:
+        rec.pop("_page_type", None)
+
+    # --- Save CSV ---
+    if not records:
+        print("No records produced.")
+        return
+
+    output_csv = os.path.join(OUTPUT_FOLDER, "rkd_metadata.csv")
+
+    col_order = [
+        "Source image",
+        "Artist", "Title",
+        "Date Dutch", "Date English", "Search margin: begin", "Search margin: end",
+        "Object name", "Medium (raw)", "Genre",
+        "Height", "Width", "Unit", "Shape",
+        "Signature/inscription", "Signature location",
+        "Provenance",
+        "Needs review",
+        "Image path (original)", "Image path (crop)",
+        "Raw OCR text",
+    ]
+    internal_fields = ["Lot No", "Inventory number"]
+
+    df = pd.DataFrame(records)
+    df = df.drop(columns=[c for c in internal_fields if c in df.columns])
+    existing_priority = [c for c in col_order if c in df.columns]
+    other_cols        = [c for c in df.columns if c not in col_order]
+    df = df[existing_priority + other_cols]
+    df.to_csv(output_csv, index=False, encoding='utf-8-sig')
+
+    # --- Summary ---
+    print("=" * 60)
+    print("PIPELINE COMPLETE")
+    print("=" * 60)
+    print(f"Total processed:      {len(records)}")
+    print(f"Errors:               {len(errors)}")
+    ok_count     = (df["Needs review"] == "ok").sum()
+    review_count = (df["Needs review"] != "ok").sum()
+    print(f"Records OK:           {ok_count}")
+    print(f"Needs human review:   {review_count}")
+
+    if review_count > 0:
+        print("\nMost common fields needing review:")
+        for field in ["artist", "title", "dimensions", "medium"]:
+            count = df["Needs review"].str.contains(field, na=False).sum()
+            if count:
+                print(f"  {field}: {count} records")
+
+    print(f"\nFiles saved:")
+    print(f"  CSV:            {output_csv}")
+    print(f"  Artwork crops:  {crops_dir}/")
+    print(f"  Full pages:     {pages_dir}/")
+    print("\nNext step: import rkd_metadata.csv into Label Studio for review.")
+
+    if errors:
+        print(f"\nFiles with errors ({len(errors)}):")
+        for e in errors:
+            print(f"  {e['file']}: {e['error']}")
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    run_pipeline()
