@@ -1,0 +1,228 @@
+import os
+import json
+import mimetypes
+import time
+import pandas as pd
+from google import genai
+from google.genai import types
+from pydantic import BaseModel
+from typing import Optional
+ 
+# ====== CONFIGURATION ======
+API_KEY = "AIzaSyDd5iLsb7BZq8cgrxFnPpU79_NZz4IpEzg"
+IMAGE_FOLDER = "/Users/yiliupeng/Downloads/ERP-sample_assets"
+OUTPUT_EXCEL = os.path.expanduser("~/Desktop/artwork-validator/metadata/extracted_entries.xlsx")
+MAX_IMAGES = 10
+DELAY_BETWEEN_REQUESTS = 20
+ 
+# ====== DATA STRUCTURE (all RKD fields) ======
+class LM_entry(BaseModel):
+    Artwork_Number: Optional[str] = None
+    Status: Optional[str] = None
+    Artist: str
+    Date_Dutch: Optional[str] = None
+    Date_English: Optional[str] = None
+    Search_Margin_Begin: Optional[str] = None
+    Search_Margin_End: Optional[str] = None
+    Genre: Optional[str] = None
+    Subject_Keyword: Optional[str] = None
+    Object_Name: Optional[str] = None
+    Shape: Optional[str] = None
+    Height: Optional[str] = None
+    Width: Optional[str] = None
+    Unit: Optional[str] = None
+    Image_Number: Optional[str] = None
+    Iconclass_Code: Optional[str] = None
+    Geographical_Keyword: Optional[str] = None
+    Vervaardigd_In: Optional[str] = None
+    Kwalificatie: Optional[str] = None
+    Land_Plaats_Anoniem: Optional[str] = None
+    Physical_Relation: Optional[str] = None
+    Support: Optional[str] = None
+    Material_Technique: Optional[str] = None
+    Position_Type: Optional[str] = None
+    Collectienaam: Optional[str] = None
+    Munt: Optional[str] = None
+    Citeerafkorting: Optional[str] = None
+    Title: str
+    Asterisk: Optional[bool] = None
+    FullEntryText: str
+ 
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+ 
+def get_image_files(folder):
+    files = []
+    for f in sorted(os.listdir(folder)):
+        ext = os.path.splitext(f)[1].lower()
+        if ext in SUPPORTED_EXTENSIONS:
+            files.append(os.path.join(folder, f))
+    print(f"📁 Found {len(files)} images, processing first {MAX_IMAGES}")
+    return files[:MAX_IMAGES]
+ 
+def extract_from_image(image_path, client, retries=3):
+    with open(image_path, "rb") as f:
+        image_data = f.read()
+ 
+    mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+ 
+    prompt = """Extract all complete, numbered artwork entries from this 19th-century catalog image.
+An entry must include the artist's attribution and all directly associated text lines until the next entry appears.
+ 
+For each entry, extract these fields following RKD metadata standards:
+ 
+Artwork_Number: The catalog number of the artwork (e.g. '1', '2').
+Status: Attribution status - use 'huidig' for current attribution, 'rejected' if marked as rejected.
+Artist: Full name of the artist from header or inline text (e.g. 'door', 'van', 'dezelfden').
+Date_Dutch: Creation date in Dutch format (e.g. '1887 gedateerd', 'ca. 1880').
+Date_English: Creation date in English (e.g. 'dated 1887', 'c. 1880').
+Search_Margin_Begin: Earliest possible year as a number only (e.g. '1880').
+Search_Margin_End: Latest possible year as a number only (e.g. '1890').
+Genre: Main category of the artwork (e.g. 'landscape', 'portrait', 'marine', 'still life').
+Subject_Keyword: Specific keywords for objects, people, or scenes depicted.
+Object_Name: Physical category of the work (e.g. 'painting', 'drawing', 'watercolour').
+Shape: Physical shape (e.g. 'liggende rechthoek', 'staande rechthoek', 'rond').
+Height: Height dimension as a number only (e.g. '40').
+Width: Width dimension as a number only (e.g. '50').
+Unit: Unit of measurement (e.g. 'cm', 'mm').
+Image_Number: Image reference number if mentioned.
+Iconclass_Code: Iconclass code if mentioned (e.g. '11H(JEROME)').
+Geographical_Keyword: Standardized place names depicted in the artwork.
+Vervaardigd_In: Place where the artwork was physically created.
+Kwalificatie: Attribution certainty level (e.g. 'naar', 'atelier van', 'toegeschreven aan').
+Land_Plaats_Anoniem: Origin for works labeled as anonymous.
+Physical_Relation: Terms for composite works (e.g. 'triptych', 'pendant').
+Support: Primary material of the carrier (e.g. 'canvas', 'panel', 'paper').
+Material_Technique: Execution materials and techniques (e.g. 'oil paint', 'graphite', 'watercolour').
+Position_Type: Standard terms for marks and signatures.
+Collectienaam: Museum or private collection name.
+Munt: Currency codes for sales (e.g. 'HFL', 'EUR').
+Citeerafkorting: Standardized literature abbreviations.
+Title: Main descriptive title. Replace 'dito', '"', 'als voren', 'idem', 'id.' by the antecedent title.
+Asterisk: True if there is an asterisk following the artwork number, False otherwise.
+FullEntryText: The complete unedited raw text of the entry including all line breaks.
+ 
+Leave fields empty if the information is not present in the image."""
+ 
+    for attempt in range(retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[
+                    types.Part.from_bytes(
+                        data=image_data,
+                        mime_type=mime_type,
+                    ),
+                    prompt
+                ],
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": list[LM_entry],
+                    "max_output_tokens": 65536
+                }
+            )
+            return response.text
+ 
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "503" in error_str or "UNAVAILABLE" in error_str:
+                wait_time = 60 * (attempt + 1)
+                print(f"  ⏳ Rate limit hit, waiting {wait_time}s before retry ({attempt+1}/{retries})...")
+                time.sleep(wait_time)
+            else:
+                print(f"  ❌ API Error: {e}")
+                return ""
+ 
+    print(f"  ❌ Failed after {retries} retries, skipping")
+    return ""
+ 
+def process_images():
+    client = genai.Client(api_key=API_KEY)
+    image_files = get_image_files(IMAGE_FOLDER)
+ 
+    if not image_files:
+        print("❌ No image files found")
+        return
+ 
+    all_dfs = []
+    already_processed = set()
+ 
+    if os.path.exists(OUTPUT_EXCEL):
+        try:
+            existing_df = pd.read_excel(OUTPUT_EXCEL)
+            all_dfs.append(existing_df)
+            already_processed = set(existing_df["Image_Filename"].tolist())
+            print(f"📊 Loaded existing data: {len(existing_df)} records, skipping {len(already_processed)} already processed images")
+        except Exception as e:
+            print(f"⚠️  Could not load existing Excel: {e}")
+ 
+    for i, image_path in enumerate(image_files):
+        filename = os.path.basename(image_path)
+ 
+        if filename in already_processed:
+            print(f"[{i+1}/{len(image_files)}] ⏭️  Skipping already processed: {filename}")
+            continue
+ 
+        print(f"\n[{i+1}/{len(image_files)}] Processing: {filename}")
+ 
+        response_text = extract_from_image(image_path, client)
+ 
+        if response_text:
+            try:
+                json_data = json.loads(response_text)
+                df = pd.DataFrame(json_data)
+                df.insert(0, "Image_Filename", filename)
+ 
+                columns_order = [
+                    "Image_Filename",
+                    "Artwork_Number",
+                    "Status",
+                    "Artist",
+                    "Date_Dutch",
+                    "Date_English",
+                    "Search_Margin_Begin",
+                    "Search_Margin_End",
+                    "Genre",
+                    "Subject_Keyword",
+                    "Object_Name",
+                    "Shape",
+                    "Height",
+                    "Width",
+                    "Unit",
+                    "Image_Number",
+                    "Iconclass_Code",
+                    "Geographical_Keyword",
+                    "Vervaardigd_In",
+                    "Kwalificatie",
+                    "Land_Plaats_Anoniem",
+                    "Physical_Relation",
+                    "Support",
+                    "Material_Technique",
+                    "Position_Type",
+                    "Collectienaam",
+                    "Munt",
+                    "Citeerafkorting",
+                    "Title",
+                    "Asterisk",
+                    "FullEntryText"
+                ]
+                df = df.reindex(columns=columns_order, fill_value="")
+                all_dfs.append(df)
+ 
+                final_df = pd.concat(all_dfs, ignore_index=True)
+                os.makedirs(os.path.dirname(OUTPUT_EXCEL), exist_ok=True)
+                final_df.to_excel(OUTPUT_EXCEL, index=False)
+                print(f"  ✅ Extracted {len(df)} records, saved")
+ 
+            except Exception as e:
+                print(f"  ❌ JSON parsing failed: {e}")
+        else:
+            print(f"  ⚠️  No data returned, skipping")
+ 
+        if i < len(image_files) - 1:
+            print(f"  ⏳ Waiting {DELAY_BETWEEN_REQUESTS}s...")
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+ 
+    print(f"\n✅ Done! Results saved to: {OUTPUT_EXCEL}")
+ 
+if __name__ == "__main__":
+    process_images()
