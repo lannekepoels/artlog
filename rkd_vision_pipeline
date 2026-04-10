@@ -35,10 +35,10 @@ from google.cloud import vision
 # CONFIGURATION
 # ============================================================
 
-INPUT_FOLDER   = "/Users/lannekepoels/extraction-pipeline/data/dataset_B"
-OUTPUT_FOLDER  = "/Users/lannekepoels/extraction-pipeline/data/dataset_B_output"
+INPUT_FOLDER   = "/Users/macbookpro/Downloads/ERP-sample_assets"
+OUTPUT_FOLDER  = "/Users/macbookpro/Downloads/ERP-output-v2"
 GOOGLE_API_KEY = "AIzaSyC7IP5ICSg6cDvilNiwnkoxQp9tOKHF0zo"
-MAX_IMAGES     = 30   # set to None to process all images
+MAX_IMAGES     = 100   # set to None to process all images
 MIN_CROP_PX    = 100   # minimum width/height of a saved crop in pixels
 MIN_VARIANCE   = 500   # minimum pixel variance for a crop to be kept
 MIN_OBJ_SCORE  = 0.4   # minimum Object Localization confidence
@@ -55,33 +55,46 @@ DIRECT_ART_TERMS = {
 # RKD CONTROLLED VOCABULARIES
 # ============================================================
 
+# Strict RKD-approved genre list.
+# Note: 'still life' is NOT an RKD genre — those works map to 'genre' here.
+# Vision labels (detected objects) are appended to the search text at runtime.
 GENRE_KEYWORDS = {
-    'portrait':                ['portrait', 'self-portrait', 'portret', 'bust', 'likeness'],
-    'still life':              ['still life', 'stilleven', 'flowers', 'fruit', 'vase',
-                                'roses', 'bouquet', 'jug', 'pitcher', 'peaches', 'grapes'],
-    'landscape (genre)':       ['landscape', 'landschap', 'forest', 'meadow', 'polder',
-                                'dunes', 'countryside', 'trees', 'village', 'farm',
-                                'shepherd', 'pastoral', 'winter', 'autumn', 'wooded'],
-    'marine (genre)':          ['harbour', 'harbor', 'boats', 'ship', 'sea', 'beach',
-                                'sailing', 'fishing', 'river', 'canal', 'coastal'],
-    'cityscape':               ['cityscape', 'city', 'street', 'town', 'amsterdam',
-                                'rotterdam', 'urban', 'buildings'],
-    'figure':                  ['figure', 'nude', 'woman', 'man', 'child', 'people',
-                                'figures', 'bathing', 'seated', 'standing', 'reclining',
-                                'girl', 'boy', 'mother', 'family'],
-    'animal painting (genre)': ['cat', 'dog', 'horse', 'cow', 'animal', 'bird',
-                                'kittens', 'peacock', 'chickens', 'sheep', 'cows'],
-    'interior view':           ['interior', 'inn', 'tavern', 'room', 'cafe', 'kitchen',
-                                'bar', 'restaurant', 'terras'],
-    'church interior':         ['church interior', 'cathedral interior'],
-    'history (genre)':         ['biblical', 'mythology', 'allegory', 'angel', 'saint'],
-    'genre':                   ['market', 'fair', 'courting', 'dancing', 'reading',
-                                'gathering', 'museum', 'exhibition', 'retirement',
-                                'bench', 'park'],
-    'abstraction':             ['abstract', 'compositie', 'untitled', 'geometric',
-                                'composition'],
-    'study (visual work)':     ['study', 'sketch', 'studie'],
-    'architecture (genre)':    ['architecture', 'ruins', 'facade', 'tower', 'gate'],
+    'portrait':                  ['portrait', 'self-portrait', 'portret', 'bust', 'likeness',
+                                  'zelfportret'],
+    'landscape (genre)':         ['landscape', 'landschap', 'forest', 'meadow', 'polder',
+                                  'dunes', 'countryside', 'trees', 'village', 'farm',
+                                  'shepherd', 'pastoral', 'winter', 'autumn', 'wooded',
+                                  'tree', 'field', 'mountain', 'hills', 'heath'],
+    'marine (genre)':            ['harbour', 'harbor', 'boats', 'ship', 'sea', 'beach',
+                                  'sailing', 'fishing', 'river', 'canal', 'coastal',
+                                  'haven', 'schepen', 'zee', 'strand'],
+    'cityscape':                 ['cityscape', 'city', 'street', 'town', 'amsterdam',
+                                  'rotterdam', 'urban', 'buildings', 'stad', 'straat'],
+    'figure':                    ['figure', 'nude', 'woman', 'man', 'child', 'people',
+                                  'figures', 'bathing', 'seated', 'standing', 'reclining',
+                                  'girl', 'boy', 'mother', 'family', 'person', 'persons',
+                                  'exhibition', 'museum visit', 'naakt', 'figuur'],
+    'animal painting (genre)':   ['cat', 'dog', 'horse', 'cow', 'animal', 'bird',
+                                  'kittens', 'peacock', 'chickens', 'sheep', 'cows',
+                                  'dieren', 'paard', 'hond', 'kat'],
+    'interior view':             ['interior', 'inn', 'tavern', 'room', 'cafe', 'kitchen',
+                                  'bar', 'restaurant', 'terras', 'interieur', 'kamer'],
+    'church interior':           ['church interior', 'cathedral interior', 'kerkinterieur'],
+    'history (genre)':           ['biblical', 'mythology', 'allegory', 'angel', 'saint',
+                                  'mythological', 'historic scene', 'battle', 'bijbels'],
+    'genre':                     ['market', 'fair', 'courting', 'dancing', 'reading',
+                                  'gathering', 'retirement', 'bench', 'park',
+                                  # still life subjects map here (not a separate RKD genre)
+                                  'still life', 'stilleven', 'flowers', 'fruit', 'vase',
+                                  'roses', 'bouquet', 'jug', 'pitcher', 'peaches', 'grapes',
+                                  'bloemen', 'vaas', 'vruchten'],
+    'abstraction':               ['abstract', 'compositie', 'untitled', 'geometric',
+                                  'composition', 'non-figurative', 'abstracte'],
+    'architecture (genre)':      ['architecture', 'ruins', 'facade', 'tower', 'gate',
+                                  'building exterior', 'architectuur', 'ruïne'],
+    'design (artistic concept)': ['design', 'decorative art', 'applied art', 'furniture',
+                                  'ceramics', 'glassware', 'textile', 'pattern', 'ornament',
+                                  'kunstnijverheid', 'decoratief'],
 }
 
 OBJECT_NAME_MAP = [
@@ -97,6 +110,77 @@ OBJECT_NAME_MAP = [
     (['mixed media'],                                    'needs human review'),
     (['acrylic on canvas', 'acrylic'],                                    'painting'),
 ]
+
+# Ordered list of (regex_pattern, normalized_RKD_term).
+# First match wins. If nothing matches, falls back to "unknown" per RKD manual.
+MEDIUM_NORMALIZATION = [
+    # Pencil + watercolour combos (must come before single-medium rules)
+    (r'pencil.{0,25}watercolou?r.{0,25}paper',        'pencil and watercolour on paper'),
+    (r'watercolou?r.{0,25}pencil.{0,25}paper',        'pencil and watercolour on paper'),
+    (r'potlood.{0,25}aquarel.{0,25}papier',           'potlood en aquarel op papier'),
+    (r'aquarel.{0,25}potlood.{0,25}papier',           'potlood en aquarel op papier'),
+    # Pen & ink
+    (r'pen\b.{0,15}\binkt\b.{0,25}\bpapier\b',        'pen en inkt op papier'),
+    (r'pen\b.{0,15}\bink\b.{0,25}\bpaper\b',          'pen and ink on paper'),
+    # Dutch oil
+    (r'olieverf\b.{0,30}\bdoek\b',                    'olieverf op doek'),
+    (r'olieverf\b.{0,30}\bpaneel\b',                  'olieverf op paneel'),
+    (r'olieverf\b.{0,30}\bkarton\b',                  'olieverf op karton'),
+    (r'olieverf\b.{0,30}\bpapier\b',                  'olieverf op papier'),
+    # English oil
+    (r'oil\b.{0,20}\bcanvas\b',                        'oil paint on canvas'),
+    (r'oil\b.{0,20}\bpanel\b',                         'oil paint on panel'),
+    (r'oil\b.{0,20}\bboard\b',                         'oil paint on board'),
+    (r'oil\b.{0,20}\bcopper\b',                        'oil paint on copper'),
+    (r'oil\b.{0,20}\bpaper\b',                         'oil paint on paper'),
+    # Watercolour
+    (r'aquarel\b.{0,30}\bpapier\b',                   'aquarel op papier'),
+    (r'watercolou?r\b.{0,30}\bpaper\b',               'watercolour on paper'),
+    (r'watercolou?r\b.{0,30}\bcanvas\b',              'watercolour on canvas'),
+    # Gouache
+    (r'gouache\b.{0,20}\bpapier\b',                   'gouache op papier'),
+    (r'gouache\b.{0,20}\bpaper\b',                    'gouache on paper'),
+    # Pastel
+    (r'pastel\b.{0,20}\bpapier\b',                    'pastel op papier'),
+    (r'pastel\b.{0,20}\bpaper\b',                     'pastel on paper'),
+    # Chalk / krijt
+    (r'krijt\b.{0,20}\bpapier\b',                     'krijt op papier'),
+    (r'black chalk\b.{0,20}\bpaper\b',                'black chalk on paper'),
+    (r'colou?red chalk\b.{0,20}\bpaper\b',            'coloured chalk on paper'),
+    (r'charcoal\b.{0,20}\bpaper\b',                   'charcoal on paper'),
+    # Pencil alone
+    (r'potlood\b.{0,20}\bpapier\b',                   'potlood op papier'),
+    (r'pencil\b.{0,20}\bpaper\b',                     'pencil on paper'),
+    # Ink
+    (r'inkt\b.{0,20}\bpapier\b',                      'inkt op papier'),
+    (r'ink\b.{0,20}\bpaper\b',                        'ink on paper'),
+    # Mixed / gemengd
+    (r'gemengde techniek\b.{0,20}\bpapier\b',         'gemengde techniek op papier'),
+    (r'gemengde techniek\b.{0,20}\bdoek\b',           'gemengde techniek op doek'),
+    (r'mixed media\b.{0,20}\bpaper\b',                'mixed media on paper'),
+    (r'mixed media\b.{0,20}\bcanvas\b',               'mixed media on canvas'),
+    # Acrylic
+    (r'acryl\b.{0,20}\bdoek\b',                       'acrylverf op doek'),
+    (r'acrylic\b.{0,20}\bcanvas\b',                   'acrylic on canvas'),
+    # Prints
+    (r'\bets\b',                                       'ets'),
+    (r'\betching\b',                                   'etching'),
+    (r'\blithograph\b',                                'lithograph'),
+    (r'\bengraving\b',                                 'engraving'),
+    (r'\bdrypoint\b',                                  'drypoint'),
+]
+
+
+def normalize_medium(raw_medium: str) -> str:
+    """Map raw OCR medium text to a standardized RKD thesaurus term.
+    Returns 'unknown' if no match found, per RKD manual guidance."""
+    if not raw_medium:
+        return 'unknown'
+    text_lower = raw_medium.lower()
+    for pattern, normalized in MEDIUM_NORMALIZATION:
+        if re.search(pattern, text_lower, re.IGNORECASE):
+            return normalized
+    return 'unknown'
 
 
 # ============================================================
@@ -142,6 +226,14 @@ def extract_full_text(vision_response) -> str:
     return ""
 
 
+def extract_vision_labels(vision_response) -> list:
+    """Return detected object label names from Vision API (used to assist genre detection)."""
+    if not vision_response:
+        return []
+    return [obj.name.lower() for obj in vision_response.localized_object_annotations
+            if obj.score >= MIN_OBJ_SCORE]
+
+
 # ============================================================
 # PART 2 — ARTWORK REGION DETECTION & CROPPING
 # ============================================================
@@ -185,11 +277,8 @@ def crop_and_save(image_bgr: np.ndarray, boxes: list, stem: str, crops_dir: str)
 # PART 3 — TEXT TO RKD FIELD MAPPING
 # ============================================================
 
-def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
-    """
-    Extract RKD fields from raw OCR text.
-    Handles Simonis & Buunk cards, Christie's catalogues, and AAG auction pages.
-    """
+def map_text_to_rkd_fields(raw_text: str, image_filename: str,
+                            vision_labels: list = None) -> dict:
     text  = raw_text.strip()
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
@@ -202,6 +291,7 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
         "Search margin: end":      "",
         "Object name":             "",
         "Medium (raw)":            "",
+        "Medium (normalized)":     "",
         "Genre":                   "",
         "Height":                  "",
         "Width":                   "",
@@ -210,16 +300,13 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
         "Provenance":              "",
         "Signature/inscription":   "",
         "Signature location":      "",
-        # Internal only — used for cross-matching, dropped from CSV
         "Lot No":                  "",
         "Inventory number":        "",
-        # Pipeline metadata
         "Source image":            image_filename,
         "Raw OCR text":            text,
         "Needs review":            "",
     }
 
-    # ---- Inventory / lot numbers (internal) ----
     inv = re.search(r'\b(\d{4,5}/[\w\.]+)', text)
     if inv:
         fields["Inventory number"] = inv.group(1)
@@ -230,8 +317,6 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
     if lot:
         fields["Lot No"] = lot.group(1)
 
-    # ---- Artist name ----
-    # Christie's: "HARM KAMERLINGH ONNES (DUTCH, 1893-1985)"
     chr_artist = re.search(
         r'([A-Z][A-Z\s\-\.]+?)\s*\((?:DUTCH|FLEMISH|FRENCH|GERMAN|BELGIAN'
         r'|BRITISH|AMERICAN),?\s*(\d{4})\s*[-–]\s*(\d{4})\)',
@@ -240,7 +325,6 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
     if chr_artist:
         fields["Artist"] = chr_artist.group(1).strip().title()
 
-    # Dutch auction format: "Harm Kamerlingh Onnes\n(Zoeterwoude 1893 - Leiden 1985)"
     if not fields["Artist"]:
         dut = re.search(
             r'((?:[A-Z][a-z]+\s+){1,4}[A-Z][a-z]+)\n\([A-Za-z]+\s+\d{4}',
@@ -249,7 +333,6 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
         if dut:
             fields["Artist"] = dut.group(1).strip()
 
-    # Simonis & Buunk: scan lines after inventory number, skip short codes like "cv"
     if not fields["Artist"] and fields["Inventory number"]:
         idx = text.find(fields["Inventory number"])
         if idx != -1:
@@ -265,8 +348,6 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
                     fields["Artist"] = candidate
                     break
 
-    # ---- Title ----
-    # Look up to 5 lines after the artist, skipping biographical/filler lines
     if fields["Artist"]:
         artist_last = fields["Artist"].split()[-1]
         for i, line in enumerate(lines):
@@ -274,20 +355,19 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
                 for j in range(i + 1, min(i + 6, len(lines))):
                     cand = lines[j].strip()
                     if re.match(r'^\(', cand) and re.search(r'\d{4}', cand):
-                        continue   # birthplace/life-dates: "(Zoeterwoude 1893 - Leiden 1985)"
+                        continue
                     if re.match(r'^(met|with)\s+', cand, re.IGNORECASE):
-                        continue   # filler: "met vriendelijke groeten"
+                        continue
                     if re.search(
                             r'\d{2}|\bop\s+papier\b|cm\b|mm\b|olieverf|aquarel'
                             r'|pencil|oil\b|signed|gesigneerd|monogram',
                             cand, re.IGNORECASE):
-                        continue   # medium / dimension / signature line
+                        continue
                     if 2 <= len(cand.split()) <= 8:
                         fields["Title"] = cand
                         break
                 break
 
-    # Christie's title: line after "(NATIONALITY, YEAR-YEAR)"
     if not fields["Title"]:
         ch_t = re.search(
             r'\d{4}[-–]\d{4}\)\n(.+?)(?:\n|signed|watercolour|oil|pencil)',
@@ -296,12 +376,11 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
         if ch_t:
             fields["Title"] = ch_t.group(1).strip()
 
-    # ---- Medium ----
     medium_raw = extract_medium_raw(text)
-    fields["Medium (raw)"] = medium_raw
-    fields["Object name"]  = detect_object_name(medium_raw) if medium_raw else "needs human review"
+    fields["Medium (raw)"]        = medium_raw
+    fields["Medium (normalized)"] = normalize_medium(medium_raw)
+    fields["Object name"]         = detect_object_name(medium_raw) if medium_raw else "needs human review"
 
-    # ---- Dimensions ----
     dims = extract_dimensions(text)
     if dims["height"]:
         fields["Height"] = dims["height"]
@@ -309,7 +388,6 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
         fields["Unit"]   = dims["unit"]
         fields["Shape"]  = dims["shape"]
 
-    # ---- Date ----
     date_info = extract_date_from_ocr(text)
     fields.update({
         "Date Dutch":           date_info["date_dutch"],
@@ -318,17 +396,16 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
         "Search margin: end":   date_info["margin_end"],
     })
 
-    # ---- Signature ----
     sig = extract_signature_info(text)
     fields["Signature/inscription"] = sig["inscription"]
     fields["Signature location"]    = sig["location"]
 
-    # ---- Provenance ----
     prov = extract_provenance(text)
     fields["Provenance"] = prov[0] if prov else ""
 
-    # ---- Genre ----
-    genre_text = (fields["Title"] + " " + text).lower()
+    # Combine title + OCR text + Vision object labels for richer genre detection
+    vision_label_str = " ".join(vision_labels) if vision_labels else ""
+    genre_text = (fields["Title"] + " " + text + " " + vision_label_str).lower()
     matched_genres = []
     for genre, keywords in GENRE_KEYWORDS.items():
         hits = sum(1 for kw in keywords if kw in genre_text)
@@ -337,11 +414,9 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
     matched_genres.sort(key=lambda x: -x[1])
     fields["Genre"] = " | ".join(g for g, _ in matched_genres[:3]) if matched_genres else "undetermined"
 
-    # ---- Default to Anoniem if no artist found ----
     if not fields["Artist"]:
         fields["Artist"] = "Anoniem"
 
-    # ---- Flag fields needing human review ----
     missing = []
     if fields["Artist"] == "Anoniem": missing.append("artist (Anoniem)")
     if not fields["Title"]:           missing.append("title")
@@ -358,7 +433,6 @@ def map_text_to_rkd_fields(raw_text: str, image_filename: str) -> dict:
 # ============================================================
 
 def extract_medium_raw(text: str) -> str:
-    """Return the raw medium description string from OCR text."""
     m = re.search(
         r'((?:olieverf|aquarel|pen|inkt|krijt|potlood|pastel|houtskool|gouache)'
         r'(?:[\s,]+(?:en\s+)?[\w\-]+)*\s+op\s+(?:papier|doek|paneel|karton))',
@@ -386,7 +460,6 @@ def extract_medium_raw(text: str) -> str:
 
 
 def detect_object_name(medium_text: str) -> str:
-    """Map a medium string to an RKD object name category."""
     desc_lower = medium_text.lower()
     for keywords, obj_name in OBJECT_NAME_MAP:
         if any(kw in desc_lower for kw in keywords):
@@ -395,7 +468,6 @@ def detect_object_name(medium_text: str) -> str:
 
 
 def extract_dimensions(text: str) -> dict:
-    """Extract height x width from text (handles comma and dot decimals)."""
     num     = r'(\d{1,4}(?:[,\.]\d{1,2})?)'
     sep     = r'\s*[x×]\s*'
     pattern = re.compile(num + sep + num + r'(?:' + sep + num + r')?\s*(cm|mm)?',
@@ -416,7 +488,6 @@ def extract_dimensions(text: str) -> dict:
 
 
 def extract_date_from_ocr(text: str) -> dict:
-    """Extract artwork creation date (not auction date)."""
     m = re.search(
         r"(?:gedateerd|dated)\s+['\"]?\s*(['\"]?\d{2,4})['\"]?",
         text, re.IGNORECASE
@@ -450,8 +521,9 @@ def extract_date_from_ocr(text: str) -> dict:
 
 
 def extract_signature_info(text: str) -> dict:
-    """Extract signature location and type (monogram / signed)."""
     result = {'inscription': '', 'location': ''}
+
+    # Dutch abbreviations: l.o. = lower left, r.o. = lower right
     loc_match = re.search(
         r'(?:gesigneerd|signed)\s+([lrLR]\.[obOB]\.)', text, re.IGNORECASE
     )
@@ -460,6 +532,17 @@ def extract_signature_info(text: str) -> dict:
         loc_map = {'l.o.': 'lower left', 'r.o.': 'lower right',
                    'l.b.': 'lower left', 'r.b.': 'lower right'}
         result['location'] = loc_map.get(loc_raw, loc_raw)
+
+    # English parenthetical or inline: "(lower right)", "lower left", etc.
+    if not result['location']:
+        eng_loc = re.search(
+            r'\(?(lower|upper)\s+(right|left)\)?',
+            text, re.IGNORECASE
+        )
+        if eng_loc:
+            result['location'] = (
+                f"{eng_loc.group(1).lower()} {eng_loc.group(2).lower()}"
+            )
 
     if re.search(r'\b(monogram|monogrammed|met monogram)\b', text, re.IGNORECASE):
         result['inscription'] = 'monogram'
@@ -470,7 +553,6 @@ def extract_signature_info(text: str) -> dict:
 
 
 def extract_provenance(text: str) -> list:
-    """Extract provenance from text."""
     m = re.search(r'\bprovenance\s*:\s*', text, re.IGNORECASE)
     if m:
         prov_text = text[m.end():]
@@ -493,8 +575,6 @@ def extract_provenance(text: str) -> list:
 # ============================================================
 
 def run_pipeline():
-    """Process all images and produce RKD-mapped CSV + crops."""
-
     if not os.path.isdir(INPUT_FOLDER):
         print(f"\nERROR: Input folder not found: {INPUT_FOLDER}")
         return
@@ -548,20 +628,28 @@ def run_pipeline():
             if vision_data is None:
                 raise ValueError("Empty response from Vision API")
 
-            ocr_text = extract_full_text(vision_data)
-            n_chars  = len(ocr_text)
+            ocr_text      = extract_full_text(vision_data)
+            vision_labels = extract_vision_labels(vision_data)
+            n_chars       = len(ocr_text)
             print(f"   -> OCR: {n_chars} characters extracted")
+
+            boxes = localized_boxes_to_pixels(vision_data, img_w, img_h)
+
+            # Skip blank pages — no usable text AND no artwork detected
+            if n_chars < 50 and not boxes:
+                print("   -> Blank page detected (no text, no artwork) — skipping")
+                errors.append({"file": img_path.name, "error": "blank page — skipped"})
+                print()
+                continue
+
             if n_chars < 20:
                 print("   -> Warning: very little text found")
-
-            # Detect artwork region(s)
-            boxes = localized_boxes_to_pixels(vision_data, img_w, img_h)
 
             if not boxes:
                 fallback_path = os.path.join(uncropped_dir, img_path.stem + "_full.jpg")
                 cv2.imwrite(fallback_path, image_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
                 crop_paths = [fallback_path]
-                print("   -> Could not detect artwork region; saved full image to uncropped_artworks/")
+                print("   -> No art region detected; saved full image to uncropped_artworks/")
             else:
                 crop_paths = crop_and_save(image_bgr, boxes, img_path.stem, crops_dir)
                 if not crop_paths:
@@ -575,7 +663,8 @@ def run_pipeline():
                 print(f"   -> {len(crop_paths)} artworks detected on this page")
 
             for art_idx, crop_path in enumerate(crop_paths):
-                rkd_fields = map_text_to_rkd_fields(ocr_text, img_path.name)
+                rkd_fields = map_text_to_rkd_fields(ocr_text, img_path.name,
+                                                     vision_labels=vision_labels)
                 rkd_fields["Image path (original)"] = str(img_path)
                 rkd_fields["Image path (crop)"]     = crop_path
 
@@ -660,7 +749,6 @@ def run_pipeline():
     for rec in records:
         rec.pop("_page_type", None)
 
-    # --- Save CSV ---
     if not records:
         print("No records produced.")
         return
@@ -671,7 +759,7 @@ def run_pipeline():
         "Source image",
         "Artist", "Title",
         "Date Dutch", "Date English", "Search margin: begin", "Search margin: end",
-        "Object name", "Medium (raw)", "Genre",
+        "Object name", "Medium (normalized)", "Medium (raw)", "Genre",
         "Height", "Width", "Unit", "Shape",
         "Signature/inscription", "Signature location",
         "Provenance",
@@ -688,7 +776,6 @@ def run_pipeline():
     df = df[existing_priority + other_cols]
     df.to_csv(output_csv, index=False, encoding='utf-8-sig')
 
-    # --- Summary ---
     print("=" * 60)
     print("PIPELINE COMPLETE")
     print("=" * 60)
@@ -707,7 +794,7 @@ def run_pipeline():
                 print(f"  {field}: {count} records")
 
     print(f"\nFiles saved:")
-    print(f"  CSV:            {output_csv}")
+    print(f"  CSV:              {output_csv}")
     print(f"  Artwork crops:    {crops_dir}/")
     print(f"  Uncropped images: {uncropped_dir}/")
     print("\nNext step: import rkd_metadata.csv into Label Studio for review.")
@@ -717,10 +804,6 @@ def run_pipeline():
         for e in errors:
             print(f"  {e['file']}: {e['error']}")
 
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
     run_pipeline()
