@@ -22,23 +22,33 @@ SETUP
 
 import os
 import re
-import io
-import shutil
-import base64
-import requests
+
+import time
+import cv2
+import numpy as np
 import pandas as pd
 from pathlib import Path
-from PIL import Image
+from google.cloud import vision
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-INPUT_FOLDER   = "/Users/macbookpro/Downloads/ERP-sample_assets"
-OUTPUT_FOLDER  = "/Users/macbookpro/Downloads/ERP-output"
+INPUT_FOLDER   = "/Users/lannekepoels/extraction-pipeline/data/dataset_B"
+OUTPUT_FOLDER  = "/Users/lannekepoels/extraction-pipeline/data/dataset_B_output"
 GOOGLE_API_KEY = "AIzaSyC7IP5ICSg6cDvilNiwnkoxQp9tOKHF0zo"
-MAX_IMAGES     = 300   # set to None to process all images
+MAX_IMAGES     = 30   # set to None to process all images
+MIN_CROP_PX    = 100   # minimum width/height of a saved crop in pixels
+MIN_VARIANCE   = 500   # minimum pixel variance for a crop to be kept
+MIN_OBJ_SCORE  = 0.4   # minimum Object Localization confidence
+REQUEST_DELAY  = 0.1   # seconds between API calls
+
+DIRECT_ART_TERMS = {
+    "painting", "artwork", "illustration", "picture",
+    "photograph", "poster", "print", "drawing", "sculpture",
+    "picture frame",
+}
 
 
 # ============================================================
@@ -93,56 +103,42 @@ OBJECT_NAME_MAP = [
 # PART 1 — GOOGLE VISION API
 # ============================================================
 
-def encode_image_to_base64(image_path: str) -> str:
-    """Resize image to max 1600px and return base64 string."""
-    img = Image.open(image_path)
-    max_side = 1600
-    w, h = img.size
-    if max(w, h) > max_side:
-        scale = max_side / max(w, h)
-        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-    if img.mode in ('RGBA', 'P'):
-        img = img.convert('RGB')
-    buf = io.BytesIO()
-    img.save(buf, format='JPEG', quality=85)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+def is_direct_art_label(label: str) -> bool:
+    return any(term in label.lower() for term in DIRECT_ART_TERMS)
 
 
-def call_google_vision(image_path: str) -> dict:
+def is_valid_crop(crop_bgr: np.ndarray) -> bool:
+    h, w = crop_bgr.shape[:2]
+    if w < MIN_CROP_PX or h < MIN_CROP_PX:
+        return False
+    return float(np.var(crop_bgr)) >= MIN_VARIANCE
+
+
+def call_vision_api(client, image_path: str):
     """Send one image to Google Cloud Vision API (OCR + object detection)."""
-    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
-    payload = {
-        "requests": [{
-            "image": {"content": encode_image_to_base64(image_path)},
-            "features": [
-                {"type": "DOCUMENT_TEXT_DETECTION"},
-                {"type": "OBJECT_LOCALIZATION"},
-            ]
-        }]
-    }
+    with open(image_path, "rb") as f:
+        content = f.read()
+    vision_image = vision.Image(content=content)
+    request = vision.AnnotateImageRequest(
+        image=vision_image,
+        features=[
+            vision.Feature(type_=vision.Feature.Type.OBJECT_LOCALIZATION),
+            vision.Feature(type_=vision.Feature.Type.DOCUMENT_TEXT_DETECTION),
+        ]
+    )
     try:
-        response = requests.post(url, json=payload, timeout=120)
-    except requests.exceptions.Timeout:
-        print("   Warning: API request timed out")
-        return {}
-
-    if response.status_code != 200:
-        print(f"   Warning: Vision API returned status {response.status_code}")
-        print(f"   Detail: {response.text[:300]}")
-        return {}
-
-    responses = response.json().get("responses", [{}])
-    return responses[0] if responses else {}
+        response = client.annotate_image(request)
+        time.sleep(REQUEST_DELAY)
+        return response
+    except Exception as exc:
+        print(f"   Warning: Vision API error — {exc}")
+        return None
 
 
-def extract_full_text(vision_response: dict) -> str:
-    """Pull all OCR text out of the Vision API response."""
-    full_text = vision_response.get("fullTextAnnotation", {}).get("text", "")
-    if full_text:
-        return full_text
-    annotations = vision_response.get("textAnnotations", [])
-    if annotations:
-        return annotations[0].get("description", "")
+def extract_full_text(vision_response) -> str:
+    """Pull all OCR text from the Vision API SDK response."""
+    if vision_response and vision_response.full_text_annotation:
+        return vision_response.full_text_annotation.text
     return ""
 
 
@@ -150,91 +146,39 @@ def extract_full_text(vision_response: dict) -> str:
 # PART 2 — ARTWORK REGION DETECTION & CROPPING
 # ============================================================
 
-def find_artwork_region(vision_response: dict, img_w: int, img_h: int):
-    """
-    Find the artwork region using Vision object labels, or infer from text positions.
-    Returns a single region dict {x, y, w, h, method} or None.
-    """
-    artwork_labels = {'painting', 'picture frame', 'illustration', 'art',
-                      'picture', 'artwork', 'visual arts', 'drawing'}
-    for obj in vision_response.get("localizedObjectAnnotations", []):
-        label = obj.get("name", "").lower()
-        score = obj.get("score", 0)
-        if any(art in label for art in artwork_labels) and score > 0.4:
-            verts = obj["boundingPoly"]["normalizedVertices"]
-            xs = [v.get("x", 0) * img_w for v in verts]
-            ys = [v.get("y", 0) * img_h for v in verts]
-            x, y = int(min(xs)), int(min(ys))
-            w, h = int(max(xs) - min(xs)), int(max(ys) - min(ys))
-            if w > 80 and h > 80:
-                return {"x": x, "y": y, "w": w, "h": h, "method": "vision_object"}
-
-    # Fallback: infer from text block positions
-    full_text_ann = vision_response.get("fullTextAnnotation", {})
-    pages = full_text_ann.get("pages", [])
-    if not pages:
-        return None
-
-    block_tops = []
-    for page in pages:
-        for block in page.get("blocks", []):
-            verts = block.get("boundingBox", {}).get("vertices", [])
-            if verts:
-                block_tops.append(min(v.get("y", img_h) for v in verts))
-
-    if not block_tops:
-        return None
-
-    lower_blocks = [y for y in block_tops if y > img_h * 0.5]
-    label_top    = min(lower_blocks) if lower_blocks else min(block_tops)
-    header_bottom  = int(img_h * 0.12)
-    artwork_bottom = int(label_top - img_h * 0.03)
-    artwork_h      = artwork_bottom - header_bottom
-
-    if artwork_h < 80:
-        return None
-
-    pad = int(img_w * 0.03)
-    return {"x": pad, "y": header_bottom, "w": img_w - 2 * pad,
-            "h": artwork_h, "method": "text_position_inference"}
+def localized_boxes_to_pixels(vision_response, img_w: int, img_h: int) -> list:
+    """Return pixel (x1,y1,x2,y2) boxes for direct art label detections above MIN_OBJ_SCORE."""
+    if not vision_response:
+        return []
+    boxes = []
+    for obj in vision_response.localized_object_annotations:
+        if not is_direct_art_label(obj.name):
+            continue
+        if obj.score < MIN_OBJ_SCORE:
+            continue
+        verts = obj.bounding_poly.normalized_vertices
+        xs = [v.x * img_w for v in verts]
+        ys = [v.y * img_h for v in verts]
+        boxes.append((min(xs), min(ys), max(xs), max(ys)))
+    return boxes
 
 
-def find_all_artwork_regions(vision_response: dict, img_w: int, img_h: int) -> list:
-    """
-    Returns ALL detected artwork regions (handles pages with 2+ artworks).
-    Falls back to single-region inference if none detected by object labels.
-    """
-    artwork_labels = {'painting', 'picture frame', 'illustration', 'art',
-                      'picture', 'artwork', 'visual arts', 'drawing'}
-    regions = []
-    for obj in vision_response.get("localizedObjectAnnotations", []):
-        label = obj.get("name", "").lower()
-        score = obj.get("score", 0)
-        if any(art in label for art in artwork_labels) and score > 0.4:
-            verts = obj["boundingPoly"]["normalizedVertices"]
-            xs = [v.get("x", 0) * img_w for v in verts]
-            ys = [v.get("y", 0) * img_h for v in verts]
-            x, y = int(min(xs)), int(min(ys))
-            w, h = int(max(xs) - min(xs)), int(max(ys) - min(ys))
-            if w > 80 and h > 80:
-                regions.append({"x": x, "y": y, "w": w, "h": h, "method": "vision_object"})
-
-    if regions:
-        return regions
-
-    single = find_artwork_region(vision_response, img_w, img_h)
-    return [single] if single else []
-
-
-def crop_and_save(image_path: str, region: dict, output_path: str):
-    """Crop the detected artwork region and save it."""
-    img = Image.open(image_path)
-    img_w, img_h = img.size
-    x1 = max(0, region["x"])
-    y1 = max(0, region["y"])
-    x2 = min(img_w, region["x"] + region["w"])
-    y2 = min(img_h, region["y"] + region["h"])
-    img.crop((x1, y1, x2, y2)).save(output_path)
+def crop_and_save(image_bgr: np.ndarray, boxes: list, stem: str, crops_dir: str) -> list:
+    """Crop each bounding box and save. Returns list of saved crop paths."""
+    h, w = image_bgr.shape[:2]
+    saved_paths = []
+    multi = len(boxes) > 1
+    for idx, (x1, y1, x2, y2) in enumerate(boxes, start=1):
+        cx1, cy1 = max(0, int(x1)), max(0, int(y1))
+        cx2, cy2 = min(w, int(x2)), min(h, int(y2))
+        crop = image_bgr[cy1:cy2, cx1:cx2]
+        if crop.size == 0 or not is_valid_crop(crop):
+            continue
+        suffix = f"_crop_{idx}" if multi else "_crop"
+        out_path = os.path.join(crops_dir, f"{stem}{suffix}.jpg")
+        cv2.imwrite(out_path, crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        saved_paths.append(out_path)
+    return saved_paths
 
 
 # ============================================================
@@ -555,10 +499,15 @@ def run_pipeline():
         print(f"\nERROR: Input folder not found: {INPUT_FOLDER}")
         return
 
-    crops_dir = os.path.join(OUTPUT_FOLDER, "cropped_artworks")
-    pages_dir = os.path.join(OUTPUT_FOLDER, "full_pages")
+    client = vision.ImageAnnotatorClient(
+        client_options={"api_key": GOOGLE_API_KEY},
+        transport="rest",
+    )
+
+    crops_dir     = os.path.join(OUTPUT_FOLDER, "cropped_artworks")
+    uncropped_dir = os.path.join(OUTPUT_FOLDER, "uncropped_artworks")
     os.makedirs(crops_dir, exist_ok=True)
-    os.makedirs(pages_dir, exist_ok=True)
+    os.makedirs(uncropped_dir, exist_ok=True)
 
     supported_extensions = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp'}
     image_files = sorted([
@@ -588,13 +537,15 @@ def run_pipeline():
         print(f"[{i}/{len(image_files)}] {img_path.name}")
 
         try:
-            pil_img      = Image.open(str(img_path))
-            img_w, img_h = pil_img.size
+            image_bgr = cv2.imread(str(img_path))
+            if image_bgr is None:
+                raise ValueError("cv2.imread returned None")
+            img_h, img_w = image_bgr.shape[:2]
 
             print("   -> Calling Google Vision API...")
-            vision_data = call_google_vision(str(img_path))
+            vision_data = call_vision_api(client, str(img_path))
 
-            if not vision_data:
+            if vision_data is None:
                 raise ValueError("Empty response from Vision API")
 
             ocr_text = extract_full_text(vision_data)
@@ -603,38 +554,34 @@ def run_pipeline():
             if n_chars < 20:
                 print("   -> Warning: very little text found")
 
-            # Detect artwork region(s) — handles pages with multiple artworks
-            art_regions = find_all_artwork_regions(vision_data, img_w, img_h)
+            # Detect artwork region(s)
+            boxes = localized_boxes_to_pixels(vision_data, img_w, img_h)
 
-            if not art_regions:
-                crop_filename = img_path.stem + "_artwork" + img_path.suffix
-                crop_path     = os.path.join(crops_dir, crop_filename)
-                pil_img.save(crop_path)
-                art_regions   = [{"x": 0, "y": 0, "w": img_w, "h": img_h,
-                                   "method": "full_page_fallback"}]
-                print("   -> Could not detect artwork region; saved full image")
+            if not boxes:
+                fallback_path = os.path.join(uncropped_dir, img_path.stem + "_full.jpg")
+                cv2.imwrite(fallback_path, image_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                crop_paths = [fallback_path]
+                print("   -> Could not detect artwork region; saved full image to uncropped_artworks/")
+            else:
+                crop_paths = crop_and_save(image_bgr, boxes, img_path.stem, crops_dir)
+                if not crop_paths:
+                    fallback_path = os.path.join(uncropped_dir, img_path.stem + "_full.jpg")
+                    cv2.imwrite(fallback_path, image_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    crop_paths = [fallback_path]
+                    print("   -> Crops failed quality filter; saved full image to uncropped_artworks/")
 
-            multi = len(art_regions) > 1
+            multi = len(crop_paths) > 1
             if multi:
-                print(f"   -> {len(art_regions)} artworks detected on this page")
+                print(f"   -> {len(crop_paths)} artworks detected on this page")
 
-            shutil.copy2(str(img_path), os.path.join(pages_dir, img_path.name))
-
-            for art_idx, region in enumerate(art_regions):
-                suffix        = f"_artwork_{art_idx + 1}" if multi else "_artwork"
-                crop_filename = img_path.stem + suffix + img_path.suffix
-                crop_path     = os.path.join(crops_dir, crop_filename)
-                crop_and_save(str(img_path), region, crop_path)
-                if not multi:
-                    print(f"   -> Artwork cropped using: {region['method']}")
-
+            for art_idx, crop_path in enumerate(crop_paths):
                 rkd_fields = map_text_to_rkd_fields(ocr_text, img_path.name)
-                rkd_fields["Image path (original)"] = os.path.join(pages_dir, img_path.name)
+                rkd_fields["Image path (original)"] = str(img_path)
                 rkd_fields["Image path (crop)"]     = crop_path
 
                 if multi:
                     rkd_fields["Source image"] = (
-                        f"{img_path.name} [artwork {art_idx + 1} of {len(art_regions)}]"
+                        f"{img_path.name} [artwork {art_idx + 1} of {len(crop_paths)}]"
                     )
                     nr = rkd_fields["Needs review"]
                     rkd_fields["Needs review"] = (
@@ -761,8 +708,8 @@ def run_pipeline():
 
     print(f"\nFiles saved:")
     print(f"  CSV:            {output_csv}")
-    print(f"  Artwork crops:  {crops_dir}/")
-    print(f"  Full pages:     {pages_dir}/")
+    print(f"  Artwork crops:    {crops_dir}/")
+    print(f"  Uncropped images: {uncropped_dir}/")
     print("\nNext step: import rkd_metadata.csv into Label Studio for review.")
 
     if errors:
