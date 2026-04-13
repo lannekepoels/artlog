@@ -86,7 +86,7 @@ http://localhost:5000
 │   │   └── annotate.html   ← Annotation interface
 │   ├── uploads/            ← Uploaded ZIPs and extracted images (auto-created)
 │   └── results/            ← Exported CSVs (auto-created)
-└── scripts/                ← Standalone pipeline scripts
+└── raw_scripts/            ← Standalone pipeline scripts
     ├── full_extraction_vision_gemini.py   ← Full pipeline: Vision + Gemini. Outputs CSV.
     ├── full_extraction_vision_regex.py    ← Full pipeline: Vision + regex. Outputs CSV.
     ├── image_extraction_vision.py         ← Image cropping with Google Cloud Vision.
