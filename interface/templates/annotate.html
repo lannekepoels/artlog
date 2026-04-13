@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Annotation Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:     #1a1410;
+    --paper:   #f5f0e8;
+    --warm:    #e8e0d0;
+    --accent:  #8b4513;
+    --gold:    #c8a96e;
+    --muted:   #7a6e62;
+    --success: #3d6b4f;
+    --error:   #8b2020;
+    --border:  #c8bfb0;
+    --panel:   #ffffff;
+    --sidebar-w: 320px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  .topbar h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .topbar .sep { color: var(--border); }
+  .topbar .record-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-left: auto;
+  }
+  .nav-btn {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: none;
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--ink);
+    transition: all 0.15s;
+  }
+  .nav-btn:hover { background: var(--warm); border-color: var(--accent); }
+  .nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  .record-counter {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    min-width: 80px;
+    text-align: center;
+  }
+  .topbar-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-left: 1rem;
+  }
+  .btn-sm {
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: none;
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  .btn-sm:hover { background: var(--warm); }
+  .btn-sm.accent {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .btn-sm.accent:hover { background: #fff; border-color: var(--ink); color: var(--ink); }
+  .btn-sm.success {
+    background: var(--success);
+    color: #fff;
+    border-color: var(--success);
+  }
+  .btn-sm.gold {
+    background: var(--accent);
+    color: var(--paper);
+    border-color: var(--accent);
+  }
+  .btn-sm.gold:hover { background: #fff; border-color: var(--accent); color: var(--accent); }
+
+  /* ── LAYOUT ── */
+  .workspace {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── LEFT: RECORD LIST ── */
+  .sidebar {
+    width: var(--sidebar-w);
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-shrink: 0;
+  }
+  .sidebar-header span {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .sidebar-search {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .sidebar-search input,
+  .sidebar-search select {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    background: var(--paper);
+    outline: none;
+    color: var(--ink);
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .sidebar-search input:focus,
+  .sidebar-search select:focus { border-color: var(--accent); }
+  .sidebar-search select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237a6e62'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+    padding-right: 1.6rem;
+    cursor: pointer;
+  }
+  .sidebar-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .sidebar-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.67rem;
+    color: var(--muted);
+  }
+  .sidebar-filter-row span { flex: 1; }
+  .sidebar-filter-row select {
+    width: auto;
+    padding: 0.2rem 1.4rem 0.2rem 0.4rem;
+    font-size: 0.65rem;
+    flex-shrink: 0;
+  }
+  .record-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .record-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(200,191,176,0.4);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .record-item:hover { background: var(--warm); }
+  .record-item.active { background: rgba(139,69,19,0.08); border-left: 3px solid var(--accent); }
+  .record-item.validated { opacity: 0.6; }
+  .record-thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+    background: var(--warm);
+    flex-shrink: 0;
+  }
+  .record-info { flex: 1; min-width: 0; }
+  .record-info .ri-title {
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .record-info .ri-sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .record-badge {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .record-badge.pending  { background: var(--gold); }
+  .record-badge.ok       { background: var(--success); }
+  .record-badge.flagged  { background: var(--error); }
+  .record-badge.deleted  { background: var(--border); }
+
+  /* ── BULK SELECTION ── */
+  .bulk-check {
+    width: 14px; height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .record-check {
+    width: 14px; height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .batch-bar {
+    padding: 0.45rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: rgba(139,69,19,0.06);
+    display: none;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+  .batch-bar.visible { display: flex; }
+  .batch-bar-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--muted);
+    flex: 1;
+  }
+  .batch-btn {
+    padding: 0.22rem 0.55rem;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.63rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid;
+    background: none;
+    transition: all 0.15s;
+  }
+  .batch-btn.b-validate { color: var(--success); border-color: var(--success); }
+  .batch-btn.b-validate:hover { background: var(--success); color: #fff; }
+  .batch-btn.b-flag { color: #8b6914; border-color: #c8a96e; }
+  .batch-btn.b-flag:hover { background: rgba(200,169,110,0.25); }
+  .batch-btn.b-delete { color: var(--error); border-color: var(--error); }
+  .batch-btn.b-delete:hover { background: var(--error); color: #fff; }
+
+  /* deleted / blank record styles */
+  .record-item.deleted { opacity: 0.38; }
+  .record-item.deleted .ri-title { text-decoration: line-through; }
+
+  /* ── CENTER: IMAGE PANEL ── */
+  .image-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #2a2420;
+  }
+  .image-panel-header {
+    padding: 0.6rem 1rem;
+    background: rgba(26,20,16,0.7);
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+  .view-toggle {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 3px;
+    background: none;
+    color: rgba(255,255,255,0.5);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .view-toggle.active {
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.9);
+    border-color: rgba(255,255,255,0.3);
+  }
+  .image-viewport {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  .image-viewport img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 2px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  }
+  .image-empty {
+    color: rgba(255,255,255,0.2);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    text-align: center;
+  }
+
+  /* ── RIGHT: FIELDS PANEL ── */
+  .fields-panel {
+    width: 380px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .fields-header {
+    padding: 0.8rem 1.2rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .fields-header span {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .confidence-badge {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+  }
+  .confidence-badge.high { color: var(--success); border-color: rgba(61,107,79,0.3); background: rgba(61,107,79,0.07); }
+  .confidence-badge.med  { color: #8b6914; border-color: rgba(200,169,110,0.4); background: rgba(200,169,110,0.1); }
+  .confidence-badge.low  { color: var(--error); border-color: rgba(139,32,32,0.3); background: rgba(139,32,32,0.07); }
+
+  .fields-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 1.2rem;
+  }
+
+  .field-group {
+    margin-bottom: 1.4rem;
+  }
+  .field-group-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 0.7rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid rgba(200,169,110,0.2);
+  }
+
+  .field-row {
+    margin-bottom: 0.9rem;
+  }
+  .field-row label {
+    display: block;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.63rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+  }
+  .field-row input,
+  .field-row textarea,
+  .field-row select {
+    width: 100%;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--paper);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.82rem;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .field-row input:focus,
+  .field-row textarea:focus,
+  .field-row select:focus {
+    border-color: var(--accent);
+    background: #fff;
+  }
+  .field-row input.edited,
+  .field-row textarea.edited,
+  .field-row select.edited {
+    border-color: var(--accent);
+    background: rgba(139,69,19,0.04);
+  }
+  .field-row textarea {
+    resize: vertical;
+    min-height: 70px;
+    line-height: 1.5;
+  }
+
+  .fields-footer {
+    padding: 1rem 1.2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 0.6rem;
+    flex-shrink: 0;
+  }
+  .btn-validate {
+    flex: 1;
+    padding: 0.6rem;
+    background: var(--success);
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-validate:hover { opacity: 0.85; }
+  .btn-validate.validated {
+    background: var(--muted);
+  }
+  .btn-flag {
+    padding: 0.6rem 1rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-flag:hover { border-color: var(--error); color: var(--error); }
+  .btn-flag.flagged { border-color: var(--error); color: var(--error); background: rgba(139,32,32,0.06); }
+
+  .notes-row {
+    margin-top: 0.5rem;
+  }
+  .notes-row textarea {
+    min-height: 50px;
+    font-size: 0.78rem;
+  }
+
+  /* ── LOADING STATE ── */
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(245,240,232,0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .loading-overlay.hidden { display: none; }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 1rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-overlay p {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--ink);
+    color: var(--paper);
+    padding: 0.7rem 1.4rem;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    transition: transform 0.3s ease;
+    z-index: 200;
+    pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── CROP EDITOR ── */
+  .image-viewport { position: relative; }
+  #crop-canvas {
+    position: absolute;
+    inset: 0;
+    cursor: crosshair;
+    display: none;
+    z-index: 5;
+    width: 100%;
+    height: 100%;
+  }
+  #crop-canvas.active { display: block; }
+  .crop-toolbar-bar {
+    padding: 0.5rem 1rem;
+    background: rgba(200,169,110,0.12);
+    border-top: 1px solid rgba(200,169,110,0.3);
+    display: none;
+    align-items: center;
+    gap: 0.8rem;
+    flex-shrink: 0;
+  }
+  .crop-toolbar-bar.active { display: flex; }
+  .crop-toolbar-bar span {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--gold);
+    flex: 1;
+  }
+  .btn-crop-apply {
+    padding: 0.35rem 0.9rem;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .btn-crop-apply:hover { opacity: 0.85; }
+  .btn-crop-cancel {
+    padding: 0.35rem 0.9rem;
+    background: none;
+    color: rgba(255,255,255,0.6);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .btn-crop-cancel:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+
+  /* ── MAGNIFIER ── */
+  .magnifier-btn {
+    margin-left: auto;
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 50%;
+    background: none;
+    color: rgba(255,255,255,0.45);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .magnifier-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9); border-color: rgba(255,255,255,0.35); }
+  .magnifier-btn.active { background: rgba(200,169,110,0.2); color: var(--gold); border-color: var(--gold); }
+
+  #magnifier-loupe {
+    position: fixed;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    border: 2px solid var(--gold);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    pointer-events: none;
+    overflow: hidden;
+    display: none;
+    z-index: 9999;
+    background: #000;
+  }
+  #magnifier-loupe img {
+    position: absolute;
+    transform-origin: top left;
+  }
+  .image-viewport.magnify-active { cursor: none; }
+
+  /* ── EMPTY STATE ── */
+  .empty-panel {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-family: 'DM Mono', monospace;
+    text-align: center;
+    padding: 2rem;
+  }
+
+  /* ── COPY FROM PAGE ── */
+  .copy-from-page {
+    margin-top: 1.8rem;
+    padding: 0.9rem 1rem;
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+    background: rgba(200,191,176,0.08);
+  }
+  .copy-from-page-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.55rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .copy-page-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .copy-page-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .copy-page-input {
+    width: 54px;
+    padding: 0.38rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    background: var(--paper);
+    color: var(--ink);
+    outline: none;
+    text-align: center;
+  }
+  .copy-page-input:focus { border-color: var(--accent); background: #fff; }
+  .copy-page-btn {
+    flex: 1;
+    padding: 0.38rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    color: var(--ink);
+    transition: all 0.15s;
+  }
+  .copy-page-btn:hover { background: var(--warm); border-color: var(--accent); }
+  .copy-page-info {
+    cursor: help;
+    font-style: normal;
+    font-size: 0.8rem;
+    color: var(--border);
+    flex-shrink: 0;
+    line-height: 1;
+    position: relative;
+    transition: color 0.15s;
+  }
+  .copy-page-info:hover { color: var(--muted); }
+  .copy-page-info:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.72rem;
+    font-weight: 300;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 3px;
+    white-space: normal;
+    width: 210px;
+    line-height: 1.5;
+    z-index: 50;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <p>Loading extraction results…</p>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Magnifier loupe -->
+<div id="magnifier-loupe"><img id="magnifier-img" src="" alt=""></div>
+
+<!-- Top bar -->
+<div class="topbar">
+  <a href="/" style="text-decoration:none;color:inherit;">
+    <h1>Annotation Review</h1>
+  </a>
+  <span class="sep">/</span>
+  <span style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted)" id="job-label">Loading…</span>
+
+  <div class="record-nav">
+    <button class="nav-btn" id="prev-btn" disabled>← Prev</button>
+    <span class="record-counter" id="record-counter">— / —</span>
+    <button class="nav-btn" id="next-btn" disabled>Next →</button>
+  </div>
+
+  <div class="topbar-actions">
+    <button class="btn-sm gold" id="export-images-btn">Export Images</button>
+    <button class="btn-sm accent" id="export-btn">Export CSV</button>
+  </div>
+</div>
+
+<!-- Main workspace -->
+<div class="workspace">
+
+  <!-- Sidebar: record list -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <input type="checkbox" class="bulk-check" id="select-all-check" title="Select all visible">
+      <span>Records</span>
+      <span id="sidebar-count" style="margin-left:auto;"></span>
+    </div>
+    <div class="batch-bar" id="batch-bar">
+      <span class="batch-bar-count" id="batch-count">0 selected</span>
+      <button class="batch-btn b-validate" onclick="batchValidate()">✓ Validate</button>
+      <button class="batch-btn b-flag" onclick="batchFlag()">⚑ Flag</button>
+      <button class="batch-btn b-delete" onclick="batchDelete()">✕ Delete</button>
+    </div>
+    <div class="sidebar-search">
+      <input type="text" id="search-input" placeholder="Filter by artist, title…">
+      <select id="sort-select">
+        <option value="index">Sort: default order</option>
+        <option value="artist">Sort: artist A–Z</option>
+        <option value="title">Sort: title A–Z</option>
+        <option value="fill_desc">Sort: most filled first</option>
+        <option value="fill_asc">Sort: least filled first</option>
+      </select>
+      <div class="sidebar-filters">
+        <div class="sidebar-filter-row">
+          <span>Blank pages</span>
+          <select id="filter-blank">
+            <option value="all">show all</option>
+            <option value="hide">hide</option>
+            <option value="only">only</option>
+          </select>
+        </div>
+        <div class="sidebar-filter-row">
+          <span>No detected crop</span>
+          <select id="filter-nocrop">
+            <option value="all">show all</option>
+            <option value="hide">hide</option>
+            <option value="only">only</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="record-list" id="record-list"></div>
+  </div>
+
+  <!-- Center: image -->
+  <div class="image-panel">
+    <div class="image-panel-header">
+      <button class="view-toggle active" id="view-crop">Cropped artwork</button>
+      <button class="view-toggle" id="view-full">Full page scan</button>
+      <button class="view-toggle" id="edit-crop-btn">Edit Crop</button>
+      <button class="magnifier-btn" id="magnifier-btn" title="Toggle magnifier">🔍</button>
+    </div>
+    <div class="crop-toolbar-bar" id="crop-toolbar-bar">
+      <span>Draw a rectangle around the artwork on the full page scan</span>
+      <button class="btn-crop-apply" id="apply-crop-btn">Apply Crop</button>
+      <button class="btn-crop-cancel" id="cancel-crop-btn">Cancel</button>
+    </div>
+    <div class="image-viewport" id="image-viewport">
+      <div class="image-empty">Select a record to view the image</div>
+      <canvas id="crop-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Right: fields -->
+  <div class="fields-panel">
+    <div class="fields-header">
+      <span>Metadata Fields</span>
+      <span class="confidence-badge" id="conf-badge" style="display:none"></span>
+    </div>
+    <div class="fields-body" id="fields-body">
+      <div class="empty-panel">Select a record from the list</div>
+    </div>
+    <div class="fields-footer" id="fields-footer" style="display:none">
+      <button class="btn-validate" id="validate-btn">✓ Mark Validated</button>
+      <button class="btn-flag" id="flag-btn">⚑ Flag</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const JOB_ID = "{{ job_id }}";
+
+// ── STATE ──
+let allRecords    = [];
+let filteredIdxs  = [];
+let currentIdx    = 0;   // index into filteredIdxs
+let editedFields  = {};  // record._id -> { fieldName: newValue }
+let viewMode      = 'crop';  // 'crop' | 'full'
+let selectedIds   = new Set(); // record._id values checked for batch ops
+
+// ── FIELD DEFINITIONS ──
+const FIELD_GROUPS = [
+  {
+    title: "Attribution",
+    fields: [
+      { key: "Artist",        label: "Artist",              type: "text" },
+      { key: "Title",         label: "Title",               type: "text" },
+      { key: "Date",          label: "Date",                type: "text" },
+      { key: "Search_Margin_Begin", label: "Search Margin: Begin", type: "text" },
+      { key: "Search_Margin_End",   label: "Search Margin: End",   type: "text" },
+    ]
+  },
+  {
+    title: "Classification",
+    fields: [
+      { key: "Genre",       label: "Genre",       type: "genre" },
+      { key: "Object_Name", label: "Object Name", type: "text" },
+      { key: "Medium",      label: "Medium / Technique", type: "text" },
+      { key: "Shape",       label: "Shape",       type: "text" },
+    ]
+  },
+  {
+    title: "Physical Description",
+    fields: [
+      { key: "Height", label: "Height", type: "text" },
+      { key: "Width",  label: "Width",  type: "text" },
+      { key: "Unit",   label: "Unit",   type: "text" },
+    ]
+  },
+  {
+    title: "Signature & Provenance",
+    fields: [
+      { key: "Signature_Inscription", label: "Signature / Inscription",   type: "text" },
+      { key: "Signature_Location",    label: "Signature Location",         type: "text" },
+      { key: "Provenance",            label: "Provenance",                 type: "textarea" },
+    ]
+  },
+  {
+    title: "Source",
+    fields: [
+      { key: "Artwork_Number", label: "Artwork Number (Catalogue)", type: "text" },
+      { key: "Image_Number",   label: "Image Number",              type: "text" },
+      { key: "_filename",      label: "Source File",               type: "readonly" },
+    ]
+  },
+  {
+    title: "Full Entry Text (OCR / Gemini)",
+    fields: [
+      { key: "FullEntryText", label: "Raw extracted text", type: "textarea" },
+    ]
+  },
+  {
+    title: "Review Notes",
+    fields: [
+      { key: "_notes", label: "Annotator notes", type: "textarea" },
+    ]
+  },
+];
+
+const GENRES = [
+  "", "portrait", "landscape (genre)", "marine (genre)", "cityscape",
+  "figure", "animal painting (genre)", "interior view", "church interior",
+  "history (genre)", "genre", "abstraction", "architecture (genre)",
+  "design (artistic concept)"
+];
+
+// ── INIT ──
+async function init() {
+  const res     = await fetch(`/api/job/${JOB_ID}/records`);
+  allRecords    = await res.json();
+  filteredIdxs  = allRecords.map((_, i) => i);
+
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('job-label').textContent = `Job ${JOB_ID} — ${allRecords.length} records`;
+  document.getElementById('sidebar-count').textContent = allRecords.length;
+
+  renderList();
+  if (allRecords.length > 0) selectRecord(0);
+}
+
+// ── METADATA FILL PERCENTAGE ──
+// Uses the same fields as the badge in the form panel so sort order matches displayed %
+function fillPct(r) {
+  const allFields = FIELD_GROUPS.flatMap(g => g.fields).filter(f => !f.key.startsWith('_'));
+  const filled    = allFields.filter(f => r[f.key] && String(r[f.key]).trim() !== '').length;
+  return filled / allFields.length;
+}
+
+// ── RENDER SIDEBAR ──
+function renderList() {
+  const list       = document.getElementById('record-list');
+  const q          = document.getElementById('search-input').value.toLowerCase();
+  const sortVal    = document.getElementById('sort-select').value;
+  const blankMode  = document.getElementById('filter-blank').value;
+  const cropMode   = document.getElementById('filter-nocrop').value;
+
+  filteredIdxs = allRecords
+    .map((r, i) => i)
+    .filter(i => {
+      const r = allRecords[i];
+      if (blankMode === 'hide' && r._blank)         return false;
+      if (blankMode === 'only' && !r._blank)        return false;
+      if (cropMode  === 'hide' && !r._crop_url)     return false;
+      if (cropMode  === 'only' && r._crop_url && !r._blank) return false;
+      if (!q) return true;
+      return (r.Artist || '').toLowerCase().includes(q)
+          || (r.Title  || '').toLowerCase().includes(q);
+    });
+
+  if (sortVal === 'artist') {
+    filteredIdxs.sort((a, b) => (allRecords[a].Artist || '').localeCompare(allRecords[b].Artist || ''));
+  } else if (sortVal === 'title') {
+    filteredIdxs.sort((a, b) => (allRecords[a].Title || '').localeCompare(allRecords[b].Title || ''));
+  } else if (sortVal === 'fill_desc') {
+    filteredIdxs.sort((a, b) => fillPct(allRecords[b]) - fillPct(allRecords[a]));
+  } else if (sortVal === 'fill_asc') {
+    filteredIdxs.sort((a, b) => fillPct(allRecords[a]) - fillPct(allRecords[b]));
+  }
+
+  list.innerHTML = filteredIdxs.map((recIdx, fi) => {
+    const r = allRecords[recIdx];
+    const isActive    = fi === currentIdx;
+    const isValidated = r._validated;
+    const isFlagged   = r._flagged;
+    const isDeleted   = r._deleted;
+    const isBlank     = r._blank;
+    const isSelected  = selectedIds.has(r._id);
+    const badgeClass  = isDeleted ? 'deleted' : isFlagged ? 'flagged' : isValidated ? 'ok' : 'pending';
+    const itemClasses = ['record-item',
+      isActive    ? 'active'    : '',
+      isValidated ? 'validated' : '',
+      isDeleted   ? 'deleted'   : '',
+      isBlank     ? 'blank'     : '',
+    ].filter(Boolean).join(' ');
+    return `
+      <div class="${itemClasses}" data-fi="${fi}" onclick="selectRecord(${fi})">
+        <input type="checkbox" class="record-check"
+               ${isSelected ? 'checked' : ''}
+               onclick="toggleSelect(event,'${r._id}')">
+        <img class="record-thumb"
+             src="${r._crop_url || r._original_url || ''}"
+             onerror="this.style.background='var(--warm)';this.src=''"
+             alt="">
+        <div class="record-info">
+          <div class="ri-title">${esc(r.Artist || 'Unknown artist')} — ${esc(r.Title || '(no title)')}</div>
+          <div class="ri-sub">${esc(r._filename || '')} · ${esc(r.Genre || '')}</div>
+        </div>
+        <div class="record-badge ${badgeClass}"></div>
+      </div>`;
+  }).join('');
+
+  syncSelectAll();
+  syncBatchBar();
+}
+
+// ── BATCH SELECTION HELPERS ──
+function toggleSelect(event, id) {
+  event.stopPropagation();
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+  } else {
+    selectedIds.add(id);
+  }
+  syncSelectAll();
+  syncBatchBar();
+  // Update just the checkbox in place (avoid full re-render on every tick)
+  const cb = event.target;
+  cb.checked = selectedIds.has(id);
+}
+
+function syncSelectAll() {
+  const cb = document.getElementById('select-all-check');
+  if (!cb) return;
+  const visibleIds = filteredIdxs.map(i => allRecords[i]._id);
+  const allChecked = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+  const someChecked = visibleIds.some(id => selectedIds.has(id));
+  cb.checked = allChecked;
+  cb.indeterminate = !allChecked && someChecked;
+}
+
+function syncBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const countEl = document.getElementById('batch-count');
+  const n = selectedIds.size;
+  if (n > 0) {
+    bar.classList.add('visible');
+    countEl.textContent = `${n} selected`;
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
+document.getElementById('select-all-check').addEventListener('change', function() {
+  const visibleIds = filteredIdxs.map(i => allRecords[i]._id);
+  if (this.checked) {
+    visibleIds.forEach(id => selectedIds.add(id));
+  } else {
+    visibleIds.forEach(id => selectedIds.delete(id));
+  }
+  renderList();
+});
+
+// ── BATCH ACTIONS ──
+function batchValidate() {
+  selectedIds.forEach(id => {
+    const rec = allRecords.find(r => r._id === id);
+    if (rec) rec._validated = true;
+  });
+  selectedIds.clear();
+  renderList();
+  toast(`✓ Marked as validated`);
+}
+
+function batchFlag() {
+  selectedIds.forEach(id => {
+    const rec = allRecords.find(r => r._id === id);
+    if (rec) rec._flagged = true;
+  });
+  selectedIds.clear();
+  renderList();
+  toast(`⚑ Flagged for review`);
+}
+
+function batchDelete() {
+  const n = selectedIds.size;
+  selectedIds.forEach(id => {
+    const rec = allRecords.find(r => r._id === id);
+    if (rec) rec._deleted = true;
+  });
+  selectedIds.clear();
+  renderList();
+  toast(`✕ ${n} entr${n === 1 ? 'y' : 'ies'} marked for deletion — will not be exported`);
+}
+
+// ── SELECT RECORD ──
+function selectRecord(filterIdx) {
+  currentIdx = filterIdx;
+  renderList();
+
+  const recIdx = filteredIdxs[filterIdx];
+  if (recIdx === undefined) return;
+  const rec = allRecords[recIdx];
+
+  updateCounter();
+  renderImage(rec);
+  renderFields(rec);
+
+  // Footer
+  document.getElementById('fields-footer').style.display = 'flex';
+  const vBtn = document.getElementById('validate-btn');
+  vBtn.textContent = rec._validated ? '✓ Validated' : '✓ Mark Validated';
+  vBtn.classList.toggle('validated', !!rec._validated);
+  document.getElementById('flag-btn').classList.toggle('flagged', !!rec._flagged);
+}
+
+// ── IMAGE ──
+function renderImage(rec) {
+  const vp     = document.getElementById('image-viewport');
+  const canvas = document.getElementById('crop-canvas');
+  const url    = viewMode === 'crop' ? (rec._crop_url || rec._original_url) : rec._original_url;
+
+  // Remove existing image/empty elements without touching the canvas
+  vp.querySelectorAll('img, .image-empty').forEach(el => el.remove());
+
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = 'Artwork scan';
+    vp.insertBefore(img, canvas);
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'image-empty';
+    empty.textContent = 'No image available';
+    vp.insertBefore(empty, canvas);
+  }
+}
+
+document.getElementById('view-crop').addEventListener('click', () => {
+  viewMode = 'crop';
+  document.getElementById('view-crop').classList.add('active');
+  document.getElementById('view-full').classList.remove('active');
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx !== undefined) renderImage(allRecords[recIdx]);
+});
+document.getElementById('view-full').addEventListener('click', () => {
+  viewMode = 'full';
+  document.getElementById('view-full').classList.add('active');
+  document.getElementById('view-crop').classList.remove('active');
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx !== undefined) renderImage(allRecords[recIdx]);
+});
+
+// ── FIELDS ──
+function renderFields(rec) {
+  const body    = document.getElementById('fields-body');
+  const confBadge = document.getElementById('conf-badge');
+
+  // Confidence
+  const filled  = FIELD_GROUPS.flatMap(g => g.fields).filter(f =>
+    !f.key.startsWith('_') && rec[f.key] && String(rec[f.key]).trim()
+  ).length;
+  const total   = FIELD_GROUPS.flatMap(g => g.fields).filter(f => !f.key.startsWith('_')).length;
+  const pct     = Math.round(filled / total * 100);
+  confBadge.style.display = 'inline';
+  confBadge.textContent   = `${pct}% filled`;
+  confBadge.className     = `confidence-badge ${pct > 70 ? 'high' : pct > 40 ? 'med' : 'low'}`;
+
+  body.innerHTML = FIELD_GROUPS.map(group => `
+    <div class="field-group">
+      <div class="field-group-title">${group.title}</div>
+      ${group.fields.map(f => renderField(rec, f)).join('')}
+    </div>
+  `).join('');
+
+  // Attach listeners
+  body.querySelectorAll('[data-key]').forEach(el => {
+    el.addEventListener('input', e => {
+      const key    = e.target.dataset.key;
+      const val    = e.target.value;
+      const recIdx = filteredIdxs[currentIdx];
+      allRecords[recIdx][key] = val;
+      e.target.classList.add('edited');
+      // If the user adds any content, unmark the record as blank
+      if (val.trim() !== '' && allRecords[recIdx]._blank) {
+        allRecords[recIdx]._blank = false;
+        const itemEl = document.querySelector(`[data-fi="${currentIdx}"]`);
+        if (itemEl) itemEl.classList.remove('blank');
+      }
+    });
+  });
+
+  // ── Copy-from-page section ──
+  const copySection = document.createElement('div');
+  copySection.className = 'copy-from-page';
+  copySection.innerHTML = `
+    <div class="copy-from-page-title">
+      Metadata not in current page?
+      <span class="copy-page-info" data-tooltip="The page number matches the counter shown between ← Prev and Next → in the top-right navigation bar. For example, if the counter shows '5 / 42', type 5 to copy all fields from that page.">ⓘ</span>
+    </div>
+    <div class="copy-page-row">
+      <span class="copy-page-label">Copy from page</span>
+      <input type="number" class="copy-page-input" id="copy-page-num" min="1" placeholder="#">
+      <button class="copy-page-btn" id="copy-page-btn">Copy all fields</button>
+    </div>
+  `;
+  body.appendChild(copySection);
+
+  document.getElementById('copy-page-btn').addEventListener('click', () => {
+    copyFromPage(parseInt(document.getElementById('copy-page-num').value, 10));
+  });
+  document.getElementById('copy-page-num').addEventListener('keydown', e => {
+    if (e.key === 'Enter') copyFromPage(parseInt(e.target.value, 10));
+  });
+}
+
+function renderField(rec, f) {
+  const val = (rec[f.key] !== undefined && rec[f.key] !== null) ? String(rec[f.key]) : '';
+
+  if (f.type === 'readonly') {
+    return `<div class="field-row">
+      <label>${f.label}</label>
+      <input type="text" value="${esc(val)}" readonly style="opacity:0.5;cursor:default;">
+    </div>`;
+  }
+  if (f.type === 'textarea') {
+    return `<div class="field-row">
+      <label>${f.label}</label>
+      <textarea data-key="${f.key}">${esc(val)}</textarea>
+    </div>`;
+  }
+  if (f.type === 'genre') {
+    const opts = GENRES.map(g =>
+      `<option value="${g}" ${g === val ? 'selected' : ''}>${g || '— select genre —'}</option>`
+    ).join('');
+    // Also allow free-text for multi-genre values like "portrait | figure"
+    return `<div class="field-row">
+      <label>${f.label}</label>
+      <input type="text" data-key="${f.key}" value="${esc(val)}"
+             list="genre-list" placeholder="portrait | landscape (genre) | …">
+      <datalist id="genre-list">${GENRES.filter(Boolean).map(g => `<option value="${g}">`).join('')}</datalist>
+    </div>`;
+  }
+  return `<div class="field-row">
+    <label>${f.label}</label>
+    <input type="text" data-key="${f.key}" value="${esc(val)}">
+  </div>`;
+}
+
+// ── NAVIGATION ──
+function updateCounter() {
+  document.getElementById('record-counter').textContent =
+    filteredIdxs.length > 0 ? `${currentIdx + 1} / ${filteredIdxs.length}` : '0 / 0';
+  document.getElementById('prev-btn').disabled = currentIdx <= 0;
+  document.getElementById('next-btn').disabled = currentIdx >= filteredIdxs.length - 1;
+}
+
+document.getElementById('prev-btn').addEventListener('click', () => {
+  if (currentIdx > 0) selectRecord(currentIdx - 1);
+});
+document.getElementById('next-btn').addEventListener('click', () => {
+  if (currentIdx < filteredIdxs.length - 1) selectRecord(currentIdx + 1);
+});
+
+// Keyboard navigation
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowLeft'  || e.key === 'j') document.getElementById('prev-btn').click();
+  if (e.key === 'ArrowRight' || e.key === 'k') document.getElementById('next-btn').click();
+  if (e.key === 'v') document.getElementById('validate-btn').click();
+});
+
+// ── SEARCH / SORT / FILTER ──
+function refilter() {
+  currentIdx = 0;
+  renderList();
+  if (filteredIdxs.length > 0) selectRecord(0);
+  updateCounter();
+}
+document.getElementById('search-input').addEventListener('input', refilter);
+document.getElementById('sort-select').addEventListener('change', refilter);
+document.getElementById('filter-blank').addEventListener('change', refilter);
+document.getElementById('filter-nocrop').addEventListener('change', refilter);
+
+// ── VALIDATE / FLAG ──
+document.getElementById('validate-btn').addEventListener('click', () => {
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx === undefined) return;
+  allRecords[recIdx]._validated = !allRecords[recIdx]._validated;
+  selectRecord(currentIdx);
+  toast(allRecords[recIdx]._validated ? '✓ Marked as validated' : 'Validation removed');
+});
+
+document.getElementById('flag-btn').addEventListener('click', () => {
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx === undefined) return;
+  allRecords[recIdx]._flagged = !allRecords[recIdx]._flagged;
+  selectRecord(currentIdx);
+  toast(allRecords[recIdx]._flagged ? '⚑ Record flagged for review' : 'Flag removed');
+});
+
+// ── COPY FROM PAGE ──
+function copyFromPage(pageNum) {
+  if (!pageNum || isNaN(pageNum) || pageNum < 1 || pageNum > filteredIdxs.length) {
+    toast(`✗ Enter a page number between 1 and ${filteredIdxs.length}`);
+    return;
+  }
+  const sourceRecIdx = filteredIdxs[pageNum - 1];
+  const targetRecIdx = filteredIdxs[currentIdx];
+  if (sourceRecIdx === targetRecIdx) {
+    toast('✗ That is the current page');
+    return;
+  }
+  const source = allRecords[sourceRecIdx];
+  const target = allRecords[targetRecIdx];
+  const copyableFields = FIELD_GROUPS.flatMap(g => g.fields)
+    .filter(f => f.type !== 'readonly' && !f.key.startsWith('_'));
+  copyableFields.forEach(f => {
+    target[f.key] = source[f.key] !== undefined ? source[f.key] : '';
+  });
+  renderFields(target);
+  toast(`✓ Copied all fields from page ${pageNum}`);
+}
+
+// ── EXPORT IMAGES ──
+document.getElementById('export-images-btn').addEventListener('click', async () => {
+  // Save first so _crop_url values are up to date on the server
+  await fetch(`/api/job/${JOB_ID}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ records: allRecords }),
+  });
+  const a = document.createElement('a');
+  a.href = `/api/job/${JOB_ID}/export_images`;
+  a.download = '';
+  a.click();
+  toast('✓ Downloading cropped images…');
+});
+
+// ── EXPORT ──
+document.getElementById('export-btn').addEventListener('click', async () => {
+  // First save, then download
+  await fetch(`/api/job/${JOB_ID}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ records: allRecords }),
+  });
+  const res  = await fetch(`/api/job/${JOB_ID}/export`);
+  const data = await res.json();
+  if (data.url) {
+    const a = document.createElement('a');
+    a.href     = data.url;
+    a.download = '';
+    a.click();
+    toast('✓ CSV downloaded');
+  } else {
+    toast('✗ Export failed: ' + (data.error || ''));
+  }
+});
+
+// ── UTILS ──
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── CROP EDITOR ──
+let cropState = null; // { startX, startY, endX, endY, drawing }
+
+function startCropMode() {
+  // Switch to full page view
+  viewMode = 'full';
+  document.getElementById('view-full').classList.add('active');
+  document.getElementById('view-crop').classList.remove('active');
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx !== undefined) renderImage(allRecords[recIdx]);
+
+  document.getElementById('crop-toolbar-bar').classList.add('active');
+  document.getElementById('edit-crop-btn').classList.add('active');
+  cropState = { startX: 0, startY: 0, endX: 0, endY: 0, drawing: false, drawn: false };
+
+  // Position the canvas exactly over the rendered image so coordinates map 1:1
+  const vp     = document.getElementById('image-viewport');
+  const canvas = document.getElementById('crop-canvas');
+
+  function positionCanvas() {
+    const img     = vp.querySelector('img');
+    if (!img) return;
+    const imgRect = img.getBoundingClientRect();
+    const vpRect  = vp.getBoundingClientRect();
+    const offX = imgRect.left - vpRect.left + vp.scrollLeft;
+    const offY = imgRect.top  - vpRect.top  + vp.scrollTop;
+    canvas.style.inset  = 'auto';
+    canvas.style.left   = offX + 'px';
+    canvas.style.top    = offY + 'px';
+    canvas.style.width  = imgRect.width  + 'px';
+    canvas.style.height = imgRect.height + 'px';
+    canvas.width  = Math.round(imgRect.width);
+    canvas.height = Math.round(imgRect.height);
+    canvas.classList.add('active');
+  }
+
+  const img = vp.querySelector('img');
+  if (img && img.complete) { positionCanvas(); }
+  else if (img)            { img.addEventListener('load', positionCanvas, { once: true }); }
+}
+
+function cancelCrop() {
+  const canvas = document.getElementById('crop-canvas');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  canvas.classList.remove('active');
+  // Reset inline positioning so CSS inset:0 takes over again next time
+  canvas.style.inset = ''; canvas.style.left = ''; canvas.style.top = '';
+  canvas.style.width = ''; canvas.style.height = '';
+  document.getElementById('crop-toolbar-bar').classList.remove('active');
+  document.getElementById('edit-crop-btn').classList.remove('active');
+  cropState = null;
+}
+
+async function applyCrop() {
+  if (!cropState || !cropState.drawn) { toast('Draw a selection first'); return; }
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx === undefined) return;
+  const rec = allRecords[recIdx];
+
+  const canvas = document.getElementById('crop-canvas');
+
+  // Canvas is sized and positioned exactly over the image, so coordinates are direct
+  const selX1 = Math.min(cropState.startX, cropState.endX);
+  const selY1 = Math.min(cropState.startY, cropState.endY);
+  const selX2 = Math.max(cropState.startX, cropState.endX);
+  const selY2 = Math.max(cropState.startY, cropState.endY);
+
+  const x_norm = Math.max(0, selX1 / canvas.width);
+  const y_norm = Math.max(0, selY1 / canvas.height);
+  const w_norm = Math.min(1 - x_norm, (selX2 - selX1) / canvas.width);
+  const h_norm = Math.min(1 - y_norm, (selY2 - selY1) / canvas.height);
+
+  if (w_norm <= 0.01 || h_norm <= 0.01) { toast('Selection too small, try again'); return; }
+
+  const res  = await fetch(`/api/job/${JOB_ID}/record/${rec._id}/crop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: rec._filename, x: x_norm, y: y_norm, w: w_norm, h: h_norm }),
+  });
+  const data = await res.json();
+  if (data.crop_url) {
+    allRecords[recIdx]._crop_url = data.crop_url + '?t=' + Date.now();
+    // Applying a crop means the page is not blank
+    allRecords[recIdx]._blank = false;
+    cancelCrop();
+    // Switch back to crop view
+    viewMode = 'crop';
+    document.getElementById('view-crop').classList.add('active');
+    document.getElementById('view-full').classList.remove('active');
+    renderImage(allRecords[recIdx]);
+    renderList();
+    toast('✓ Crop updated');
+  } else {
+    toast('✗ Crop failed: ' + (data.error || ''));
+  }
+}
+
+function drawCropRect() {
+  const canvas = document.getElementById('crop-canvas');
+  const ctx    = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!cropState) return;
+
+  const x = Math.min(cropState.startX, cropState.endX);
+  const y = Math.min(cropState.startY, cropState.endY);
+  const w = Math.abs(cropState.endX - cropState.startX);
+  const h = Math.abs(cropState.endY - cropState.startY);
+
+  // Dim everything outside selection
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(x, y, w, h);
+
+  // Selection border
+  ctx.strokeStyle = '#c8a96e';
+  ctx.lineWidth   = 2;
+  ctx.setLineDash([6, 3]);
+  ctx.strokeRect(x, y, w, h);
+}
+
+const cropCanvas = document.getElementById('crop-canvas');
+cropCanvas.addEventListener('mousedown', e => {
+  if (!cropState) return;
+  const rect = cropCanvas.getBoundingClientRect();
+  cropState.startX = e.clientX - rect.left;
+  cropState.startY = e.clientY - rect.top;
+  cropState.endX   = cropState.startX;
+  cropState.endY   = cropState.startY;
+  cropState.drawing = true;
+  cropState.drawn   = false;
+});
+cropCanvas.addEventListener('mousemove', e => {
+  if (!cropState || !cropState.drawing) return;
+  const rect = cropCanvas.getBoundingClientRect();
+  cropState.endX = e.clientX - rect.left;
+  cropState.endY = e.clientY - rect.top;
+  drawCropRect();
+});
+cropCanvas.addEventListener('mouseup', () => {
+  if (!cropState) return;
+  cropState.drawing = false;
+  cropState.drawn   = true;
+});
+
+document.getElementById('edit-crop-btn').addEventListener('click', () => {
+  if (cropState) { cancelCrop(); } else { startCropMode(); }
+});
+document.getElementById('apply-crop-btn').addEventListener('click', applyCrop);
+document.getElementById('cancel-crop-btn').addEventListener('click', cancelCrop);
+
+// ── START ──
+init();
+
+// ── MAGNIFIER ──
+(function () {
+  const ZOOM       = 3;
+  const LOUPE_R    = 90; // half of loupe width/height (180px)
+  const btn        = document.getElementById('magnifier-btn');
+  const loupe      = document.getElementById('magnifier-loupe');
+  const loupeImg   = document.getElementById('magnifier-img');
+  const viewport   = document.getElementById('image-viewport');
+  let active       = false;
+
+  btn.addEventListener('click', () => {
+    active = !active;
+    btn.classList.toggle('active', active);
+    if (!active) {
+      loupe.style.display = 'none';
+      viewport.classList.remove('magnify-active');
+    } else {
+      viewport.classList.add('magnify-active');
+    }
+  });
+
+  viewport.addEventListener('mousemove', (e) => {
+    if (!active) return;
+    const img = viewport.querySelector('img:not(#magnifier-img)');
+    if (!img || !img.src) return;
+
+    // Keep loupe image in sync with displayed image
+    if (loupeImg.src !== img.src) {
+      loupeImg.src = img.src;
+    }
+
+    // Position loupe centered on cursor (clamped to viewport so it stays visible)
+    const vr   = viewport.getBoundingClientRect();
+    const lx   = e.clientX - LOUPE_R;
+    const ly   = e.clientY - LOUPE_R;
+    loupe.style.left    = lx + 'px';
+    loupe.style.top     = ly + 'px';
+    loupe.style.display = 'block';
+
+    // Calculate where the cursor is relative to the displayed image
+    const ir = img.getBoundingClientRect();
+    const cx = e.clientX - ir.left;   // cursor x within image element
+    const cy = e.clientY - ir.top;    // cursor y within image element
+
+    // Scale factor: displayed size vs natural size
+    const scaleX = ir.width  / img.naturalWidth;
+    const scaleY = ir.height / img.naturalHeight;
+
+    // Position loupe-img so the hovered spot appears centered inside the loupe
+    const offsetX = -(cx * ZOOM) + LOUPE_R;
+    const offsetY = -(cy * ZOOM) + LOUPE_R;
+    loupeImg.style.width  = (img.naturalWidth  * scaleX * ZOOM) + 'px';
+    loupeImg.style.height = (img.naturalHeight * scaleY * ZOOM) + 'px';
+    loupeImg.style.left   = offsetX + 'px';
+    loupeImg.style.top    = offsetY + 'px';
+  });
+
+  viewport.addEventListener('mouseleave', () => {
+    if (active) loupe.style.display = 'none';
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catalogue Extraction Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink:     #1a1410;
+    --paper:   #f5f0e8;
+    --warm:    #e8e0d0;
+    --accent:  #8b4513;
+    --gold:    #c8a96e;
+    --muted:   #7a6e62;
+    --success: #3d6b4f;
+    --error:   #8b2020;
+    --border:  #c8bfb0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse at 10% 20%, rgba(200,169,110,0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 80%, rgba(139,69,19,0.06) 0%, transparent 50%);
+  }
+
+  /* ── HEADER ── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 2rem 3rem;
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+  }
+  header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  header span {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+  }
+
+  .hero {
+    margin-bottom: 3.5rem;
+  }
+  .hero h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.6rem;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+  }
+  .hero h2 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+  .hero p {
+    color: var(--muted);
+    font-size: 1rem;
+    line-height: 1.7;
+    max-width: 560px;
+  }
+
+  /* ── FORM CARD ── */
+  .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2.5rem;
+    box-shadow: 0 2px 20px rgba(26,20,16,0.06);
+  }
+
+  .field {
+    margin-bottom: 1.8rem;
+  }
+  .field label {
+    display: block;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+  .field input[type="text"],
+  .field input[type="password"] {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--paper);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--accent); }
+
+  /* ── DROP ZONE ── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 4px;
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .drop-zone:hover,
+  .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(139,69,19,0.03);
+  }
+  .drop-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .drop-zone .icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    opacity: 0.4;
+  }
+  .drop-zone .label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+  .drop-zone .label strong {
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .drop-zone .sub {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 0.4rem;
+    opacity: 0.7;
+  }
+  .file-selected .label {
+    color: var(--success);
+  }
+
+  /* ── BUTTON ── */
+  .btn-primary {
+    width: 100%;
+    padding: 1rem;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 0.5rem;
+  }
+  .btn-primary:hover { background: var(--accent); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── PROGRESS ── */
+  #progress-section {
+    display: none;
+    margin-top: 2rem;
+  }
+  #progress-section.visible { display: block; }
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.8rem;
+  }
+  .progress-header span {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .progress-bar-track {
+    height: 4px;
+    background: var(--warm);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 1.2rem;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  .patience-msg {
+    display: none;
+    margin-bottom: 1rem;
+    padding: 0.8rem 1rem;
+    background: rgba(200,169,110,0.1);
+    border: 1px solid rgba(200,169,110,0.3);
+    border-radius: 3px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .patience-msg.visible { display: block; }
+  .patience-msg strong {
+    color: var(--ink);
+    font-weight: 500;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .patience-tip {
+    font-size: 0.72rem;
+    margin-top: 0.5rem;
+    color: var(--gold);
+    font-family: 'DM Mono', monospace;
+    min-height: 1.2em;
+    transition: opacity 0.5s;
+  }
+
+  .log-box {
+    background: var(--ink);
+    color: #c8c0b8;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1.7;
+    padding: 1.2rem;
+    border-radius: 3px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .log-box .log-ok   { color: #7ec894; }
+  .log-box .log-warn { color: #e6c07b; }
+  .log-box .log-err  { color: #e06c75; }
+
+  .done-banner {
+    display: none;
+    margin-top: 1.5rem;
+    padding: 1.2rem 1.5rem;
+    background: rgba(61,107,79,0.08);
+    border: 1px solid rgba(61,107,79,0.3);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .done-banner p {
+    font-size: 0.9rem;
+    color: var(--success);
+  }
+  .done-banner a {
+    padding: 0.6rem 1.2rem;
+    background: var(--success);
+    color: #fff;
+    border-radius: 3px;
+    text-decoration: none;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    transition: opacity 0.2s;
+  }
+  .done-banner a:hover { opacity: 0.85; }
+  #done-banner { display: none; }
+  #done-banner.visible { display: flex; }
+
+  /* ── PIPELINE STEPS ── */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    margin-top: 3.5rem;
+  }
+  .step {
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.6);
+  }
+  .step .num {
+    font-family: 'Playfair Display', serif;
+    font-size: 2rem;
+    color: var(--gold);
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 0.6rem;
+  }
+  .step h3 {
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 0.4rem;
+  }
+  .step p {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  #error-msg {
+    display: none;
+    color: var(--error);
+    font-size: 0.85rem;
+    margin-top: 1rem;
+    padding: 0.8rem 1rem;
+    background: rgba(139,32,32,0.07);
+    border-radius: 3px;
+    border: 1px solid rgba(139,32,32,0.2);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Extraction Pipeline</h1>
+  <span>Automated Catalogue Metadata Extractor</span>
+</header>
+
+<main>
+  <div class="hero">
+    <h2>Extract &amp; annotate<br><em>art historical metadata</em></h2>
+    <p>Upload a ZIP of scanned catalogue pages. The pipeline uses Google Vision for cropping
+       and Gemini for structured metadata extraction, then presents results for human review.</p>
+  </div>
+
+  <div class="card">
+    <div class="field">
+      <label>Google Cloud Vision API Key</label>
+      <input type="password" id="google-key" placeholder="AIza..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Google Gemini API Key</label>
+      <input type="password" id="gemini-key" placeholder="AIza..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Upload ZIP of catalogue images</label>
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".zip">
+        <div class="icon">📁</div>
+        <div class="label"><strong>Click to browse</strong> or drag &amp; drop</div>
+        <div class="sub">.zip archive containing .jpg / .png / .tif images</div>
+      </div>
+    </div>
+    <button class="btn-primary" id="run-btn" disabled>Run Extraction Pipeline</button>
+    <div id="error-msg"></div>
+
+    <div id="progress-section">
+      <div class="progress-header">
+        <span id="progress-label">Initialising…</span>
+        <span id="progress-count">0 / 0</span>
+      </div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="patience-msg" id="patience-msg">
+        <strong id="patience-title">Processing — this may take a few minutes</strong>
+        <span>Each page is being analysed by Google Vision and Gemini in turn. The log below updates in real time.</span>
+        <div class="patience-tip" id="patience-tip"></div>
+      </div>
+      <div class="log-box" id="log-box"></div>
+      <div class="done-banner" id="done-banner">
+        <p id="done-msg">✓ Extraction complete.</p>
+        <a id="annotate-link" href="#">Open Annotation Interface →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="steps">
+    <div class="step">
+      <div class="num">01</div>
+      <h3>Vision Crop</h3>
+      <p>Google Vision detects and crops artwork regions from raw scan pages.</p>
+    </div>
+    <div class="step">
+      <div class="num">02</div>
+      <h3>Gemini Extract</h3>
+      <p>Gemini reads each page and extracts all metadata fields as structured JSON.</p>
+    </div>
+    <div class="step">
+      <div class="num">03</div>
+      <h3>Human Review</h3>
+      <p>Browse results image-by-image. Edit any field inline and export a clean CSV.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const runBtn     = document.getElementById('run-btn');
+  const googleKey  = document.getElementById('google-key');
+  const geminiKey  = document.getElementById('gemini-key');
+  const progressSec = document.getElementById('progress-section');
+  const progressFill = document.getElementById('progress-fill');
+  const progressLabel = document.getElementById('progress-label');
+  const progressCount = document.getElementById('progress-count');
+  const logBox = document.getElementById('log-box');
+  const doneBanner = document.getElementById('done-banner');
+  const errorMsg = document.getElementById('error-msg');
+  const patienceMsg = document.getElementById('patience-msg');
+  const patienceTitle = document.getElementById('patience-title');
+  const patienceTip = document.getElementById('patience-tip');
+
+  const TIPS = [
+    'Tip: larger ZIPs with many high-res scans take longer — this is normal.',
+    'Tip: Google Vision crops each artwork region before Gemini reads the metadata.',
+    'Tip: pages with no detectable artwork are automatically marked as blank.',
+    'Tip: once done, you can edit any field inline in the annotation interface.',
+    'Tip: you can export results as a CSV from the annotation interface.',
+    'Tip: the pipeline runs all images sequentially to stay within API rate limits.',
+  ];
+  let tipIdx = 0;
+  let tipTimer = null;
+
+  function startTips() {
+    tipIdx = 0;
+    patienceTip.textContent = TIPS[tipIdx];
+    tipTimer = setInterval(() => {
+      patienceTip.style.opacity = '0';
+      setTimeout(() => {
+        tipIdx = (tipIdx + 1) % TIPS.length;
+        patienceTip.textContent = TIPS[tipIdx];
+        patienceTip.style.opacity = '1';
+      }, 500);
+    }, 6000);
+  }
+
+  function stopTips() {
+    clearInterval(tipTimer);
+    tipTimer = null;
+  }
+
+  let selectedFile = null;
+  let pollInterval = null;
+
+  function checkReady() {
+    runBtn.disabled = !(selectedFile && googleKey.value.trim() && geminiKey.value.trim());
+  }
+  googleKey.addEventListener('input', checkReady);
+  geminiKey.addEventListener('input', checkReady);
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) {
+      selectedFile = fileInput.files[0];
+      dropZone.classList.add('file-selected');
+      dropZone.querySelector('.label').innerHTML = `<strong>${selectedFile.name}</strong>`;
+      dropZone.querySelector('.sub').textContent = `${(selectedFile.size / 1024 / 1024).toFixed(1)} MB`;
+    }
+    checkReady();
+  });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.endsWith('.zip')) {
+      selectedFile = f;
+      dropZone.classList.add('file-selected');
+      dropZone.querySelector('.label').innerHTML = `<strong>${f.name}</strong>`;
+      dropZone.querySelector('.sub').textContent = `${(f.size / 1024 / 1024).toFixed(1)} MB`;
+      checkReady();
+    }
+  });
+
+  runBtn.addEventListener('click', async () => {
+    errorMsg.style.display = 'none';
+    const fd = new FormData();
+    fd.append('file', selectedFile);
+    fd.append('google_api_key', googleKey.value.trim());
+    fd.append('gemini_api_key', geminiKey.value.trim());
+
+    runBtn.disabled = true;
+    runBtn.textContent = 'Uploading…';
+    progressSec.classList.add('visible');
+    progressLabel.textContent = 'Uploading ZIP…';
+    patienceMsg.classList.add('visible');
+    patienceTitle.textContent = 'Uploading — please wait';
+    patienceTip.textContent = '';
+
+    try {
+      const res  = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+      runBtn.textContent = 'Pipeline running…';
+      patienceTitle.textContent = 'Processing — this may take a few minutes';
+      startTips();
+      startPolling(data.job_id, data.total);
+    } catch (e) {
+      showError(e.message);
+      patienceMsg.classList.remove('visible');
+      stopTips();
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run Extraction Pipeline';
+    }
+  });
+
+  function startPolling(jobId, total) {
+    pollInterval = setInterval(async () => {
+      const res  = await fetch(`/api/job/${jobId}`);
+      const data = await res.json();
+
+      const pct = total > 0 ? (data.progress / total) * 100 : 0;
+      progressFill.style.width = pct + '%';
+      progressCount.textContent = `${data.progress} / ${total}`;
+      progressLabel.textContent = data.status === 'done' ? '✓ Complete' : `Processing image ${data.progress}…`;
+
+      // Append new log lines
+      if (data.log && data.log.length) {
+        logBox.innerHTML = data.log.map(line => {
+          if (line.includes('✓') || line.includes('✅')) return `<div class="log-ok">${esc(line)}</div>`;
+          if (line.includes('⚠') || line.includes('⏳')) return `<div class="log-warn">${esc(line)}</div>`;
+          if (line.includes('✗') || line.includes('Error')) return `<div class="log-err">${esc(line)}</div>`;
+          return `<div>${esc(line)}</div>`;
+        }).join('');
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+
+      if (data.status === 'done' || data.status === 'error') {
+        clearInterval(pollInterval);
+        stopTips();
+        patienceMsg.classList.remove('visible');
+        progressFill.style.width = '100%';
+        if (data.status === 'done') {
+          doneBanner.classList.add('visible');
+          document.getElementById('done-msg').textContent =
+            `✓ Extraction complete — ${data.count} record${data.count !== 1 ? 's' : ''} extracted.`;
+          document.getElementById('annotate-link').href = `/annotate/${jobId}`;
+        } else {
+          showError('Pipeline encountered a fatal error. Check the log above.');
+        }
+        runBtn.textContent = 'Run Extraction Pipeline';
+      }
+    }, 2000);
+  }
+
+  function showError(msg) {
+    errorMsg.style.display = 'block';
+    errorMsg.textContent = '⚠ ' + msg;
+  }
+
+  function esc(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+flask>=3.0
+pillow>=10.0
+pandas>=2.0
+requests>=2.31
+opencv-python>=4.8
+pydantic>=2.0
+google-genai>=1.0
+google-cloud-vision>=3.4

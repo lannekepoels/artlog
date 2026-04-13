@@ -101,7 +101,7 @@ Title: Main descriptive title. Replace 'dito', '"', 'als voren', 'idem', 'id.' b
 Asterisk: True if there is an asterisk following the artwork number, False otherwise.
 FullEntryText: The complete unedited raw text of the entry including all line breaks.
  
-Leave fields empty if the information is not present in the image."""
+Leave fields empty if the information is not present in the image. DO NOT fabricate any information. Only extract what is clearly visible in the image. """
  
     for attempt in range(retries):
         try:

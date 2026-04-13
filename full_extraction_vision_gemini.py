@@ -1,6 +1,6 @@
 """
 ================================================================================
-RKD AUCTION IMAGE PIPELINE — GEMINI VERSION
+RKD EXTRACTION PIPELINE — GEMINI VERSION
 ================================================================================
 What this script does:
   1. Takes a folder of scanned auction catalog images
