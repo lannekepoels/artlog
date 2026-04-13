@@ -1,6 +1,6 @@
 # 🖼️ Extraction Pipeline — Web App
 
-A local web application that automatically extracts metadata from scanned art catalogue pages using Google Cloud Vision and Gemini AI, and lets you review and correct the results through a built-in annotation interface — all running on your own computer.
+A local web application that automatically extracts metadata from scanned art catalogue pages using Google Cloud Vision and Gemini AI, and lets you review and correct the results through a built-in annotation interface.
 
 ---
 
@@ -61,7 +61,7 @@ You should see a message saying the server is running.
 Open any browser (Chrome, Safari, Firefox) and go to:
 
 ```text
-http://localhost:5000
+http://localhost:5001
 ```
 
 The app will open. You can now use it like any normal website — it's just running locally on your machine.
@@ -104,8 +104,8 @@ The screen is split into three panels:
 
 | Button | What it does |
 | ------ | ------------ |
-| **Save All** | Saves all your edits (stored locally as a JSON file) |
-| **Export CSV** | Saves and downloads all records as a CSV file you can open in Excel |
+| **Export Images** | Downloads all your cropped images (in a ZIP file) |
+| **Export CSV** | Downloads all records as a CSV file you can open in Excel |
 
 ---
 
@@ -153,6 +153,6 @@ This means the Gemini API is receiving too many requests too quickly. The app ha
 
 Make sure your ZIP file contains images (`.jpg`, `.png`, `.tif`) either at the top level or inside one folder. If you created the ZIP on a Mac, the hidden `__MACOSX` folder inside it is automatically ignored.
 
-### The page at localhost:5000 won't load
+### The page at localhost:5001 won't load
 
 Make sure you ran `python app.py` first and that the terminal is still open — closing the terminal stops the app.
