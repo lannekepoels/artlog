@@ -1,10 +1,10 @@
-# Extraction Pipeline — Web App
+# 🖼️ Extraction Pipeline — Web App
 
 A local web application that runs your catalogue extraction pipeline and provides an annotation interface for reviewing and correcting extracted metadata.
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### 1. Install dependencies
 
@@ -39,7 +39,7 @@ http://localhost:5000
 
 ---
 
-## How it Works
+## ⚙️ How it Works
 
 ### Upload page (`/`)
 
@@ -74,7 +74,7 @@ http://localhost:5000
 
 ---
 
-## File Structure
+## 📁 File Structure
 
 ```text
 ├── app.py                  ← Flask server + pipeline runner
@@ -85,7 +85,7 @@ http://localhost:5000
 │   └── annotate.html       ← Annotation interface
 ├── uploads/                ← Uploaded ZIPs and extracted images (auto-created)
 ├── results/                ← Exported CSVs (auto-created)
-└── raw_scripts/            ← Standalone pipeline scripts
+└── raw_scripts/            ← Standalone pipeline scripts (archive)
     ├── full_extraction_vision_gemini.py   ← Full pipeline: Vision + Gemini. Outputs CSV.
     ├── full_extraction_vision_regex.py    ← Full pipeline: Vision + regex. Outputs CSV.
     ├── image_extraction_vision.py         ← Image cropping with Google Cloud Vision.
@@ -96,7 +96,7 @@ http://localhost:5000
 
 ---
 
-## Notes
+## 🔒 Notes
 
 - **API keys are never stored** — they're passed in memory only for the duration of the pipeline run
 - The web app pipeline uses `gemini-3-flash-preview`
@@ -106,7 +106,7 @@ http://localhost:5000
 
 ---
 
-## Troubleshooting
+## 🛠️ Troubleshooting
 
 ### "No module named 'cv2'"
 
