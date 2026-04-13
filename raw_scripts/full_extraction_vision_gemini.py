@@ -23,6 +23,10 @@ SETUP
   pip install pillow pandas requests opencv-python pydantic google-genai
               google-cloud-vision
 
+  Set your API keys in the terminal before running:
+    export GOOGLE_API_KEY=your_key_here
+    export GEMINI_API_KEY=your_key_here
+
   Then run:
     python rkd_vision_gemini_pipeline.py
 ================================================================================
@@ -48,8 +52,8 @@ from google import genai
 
 INPUT_FOLDER   = "/Users/lannekepoels/extraction-pipeline/data/dataset_B"
 OUTPUT_FOLDER  = "/Users/lannekepoels/extraction-pipeline/data/dataset_B_output"
-GOOGLE_API_KEY = "AIzaSyC7IP5ICSg6cDvilNiwnkoxQp9tOKHF0zo"
-GEMINI_API_KEY = "AIzaSyDd5iLsb7BZq8cgrxFnPpU79_NZz4IpEzg"
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MAX_IMAGES     = 30   # set to None to process all images
 DELAY_BETWEEN_REQUESTS = 5   # seconds between Gemini API calls
 MIN_CROP_PX    = 100   # minimum width/height of a saved crop in pixels
@@ -343,6 +347,14 @@ def extract_metadata_with_gemini(image_path: str, retries=3) -> list:
 
 def run_pipeline():
     """Process all images and produce RKD-mapped CSV + crops."""
+
+    missing = [name for name, val in [("GOOGLE_API_KEY", GOOGLE_API_KEY), ("GEMINI_API_KEY", GEMINI_API_KEY)] if not val]
+    if missing:
+        print(f"\nERROR: Missing environment variable(s): {', '.join(missing)}")
+        print("Set them in your terminal before running, for example:")
+        for name in missing:
+            print(f"  export {name}=your_key_here")
+        return
 
     if not os.path.isdir(INPUT_FOLDER):
         print(f"\nERROR: Input folder not found: {INPUT_FOLDER}")
