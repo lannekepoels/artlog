@@ -5,7 +5,7 @@ Run with:
     pip install flask pillow pandas requests opencv-python pydantic google-genai google-cloud-vision
     python app.py
 
-Then open: http://localhost:5000
+Then open: http://localhost:5001
 """
 
 import os
