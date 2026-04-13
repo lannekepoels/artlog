@@ -9,7 +9,6 @@ A local web application that runs your catalogue extraction pipeline and provide
 ### 1. Install dependencies
 
 ```bash
-cd interface
 pip install -r requirements.txt
 ```
 
@@ -78,14 +77,14 @@ http://localhost:5000
 ## File Structure
 
 ```text
-├── interface/              ← Web app (Flask)
-│   ├── app.py              ← Flask server + pipeline runner
-│   ├── requirements.txt    ← Python dependencies
-│   ├── templates/
-│   │   ├── index.html      ← Upload & progress page
-│   │   └── annotate.html   ← Annotation interface
-│   ├── uploads/            ← Uploaded ZIPs and extracted images (auto-created)
-│   └── results/            ← Exported CSVs (auto-created)
+├── app.py                  ← Flask server + pipeline runner
+├── requirements.txt        ← Python dependencies
+├── README.md
+├── templates/
+│   ├── index.html          ← Upload & progress page
+│   └── annotate.html       ← Annotation interface
+├── uploads/                ← Uploaded ZIPs and extracted images (auto-created)
+├── results/                ← Exported CSVs (auto-created)
 └── raw_scripts/            ← Standalone pipeline scripts
     ├── full_extraction_vision_gemini.py   ← Full pipeline: Vision + Gemini. Outputs CSV.
     ├── full_extraction_vision_regex.py    ← Full pipeline: Vision + regex. Outputs CSV.
