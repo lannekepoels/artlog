@@ -83,8 +83,9 @@ http://localhost:5000
 ├── templates/
 │   ├── index.html          ← Upload & progress page
 │   └── annotate.html       ← Annotation interface
-├── uploads/                ← Uploaded ZIPs and extracted images (auto-created)
-├── results/                ← Exported CSVs (auto-created)
+├── uploads/                ← Uploaded ZIPs and extracted images (auto-created, git-ignored)
+├── results/                ← Exported CSVs (auto-created, git-ignored)
+├── data/                   ← Local catalogue data (git-ignored, not included in repo)
 └── raw_scripts/            ← Standalone pipeline scripts (archive)
     ├── full_extraction_vision_gemini.py   ← Full pipeline: Vision + Gemini. Outputs CSV.
     ├── full_extraction_vision_regex.py    ← Full pipeline: Vision + regex. Outputs CSV.

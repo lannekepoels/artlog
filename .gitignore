@@ -14,3 +14,11 @@ venv/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local tool folders
+.cache/
+.claude/
+
+# App runtime folders
+uploads/
+results/
