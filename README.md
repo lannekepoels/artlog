@@ -1,4 +1,4 @@
-# 🖼️ Extraction Pipeline — Web App
+# 🖼️ Artlog — Web App
 
 A local web application that automatically extracts metadata from scanned art catalogue pages using Google Cloud Vision and Gemini AI, and lets you review and correct the results through a built-in annotation interface.
 
@@ -156,3 +156,7 @@ Make sure your ZIP file contains images (`.jpg`, `.png`, `.tif`) either at the t
 ### The page at localhost:5001 won't load
 
 Make sure you ran `python app.py` first and that the terminal is still open — closing the terminal stops the app.
+
+---
+
+Made by: Max, Tamara, Yiliu, Lanneke and RKD.
