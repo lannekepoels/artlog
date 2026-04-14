@@ -159,4 +159,4 @@ Make sure you ran `python app.py` first and that the terminal is still open — 
 
 ---
 
-Made by: Max, Tamara, Yiliu, Lanneke and RKD.
+Made by: Max, Tamara, Yiliu, Lanneke and Nederlands Instituut voor Kunstgeschiedenis (RKD).
