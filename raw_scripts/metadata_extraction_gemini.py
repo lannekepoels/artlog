@@ -31,7 +31,6 @@ class LM_entry(BaseModel):
     Height: Optional[str] = None
     Width: Optional[str] = None
     Unit: Optional[str] = None
-    Image_Number: Optional[str] = None
     Iconclass_Code: Optional[str] = None
     Geographical_Keyword: Optional[str] = None
     Vervaardigd_In: Optional[str] = None
@@ -84,7 +83,6 @@ Shape: Physical shape (e.g. 'liggende rechthoek', 'staande rechthoek', 'rond').
 Height: Height dimension as a number only (e.g. '40').
 Width: Width dimension as a number only (e.g. '50').
 Unit: Unit of measurement (e.g. 'cm', 'mm').
-Image_Number: Image reference number if mentioned.
 Iconclass_Code: Iconclass code if mentioned (e.g. '11H(JEROME)').
 Geographical_Keyword: Standardized place names depicted in the artwork.
 Vervaardigd_In: Place where the artwork was physically created.
@@ -188,7 +186,6 @@ def process_images():
                     "Height",
                     "Width",
                     "Unit",
-                    "Image_Number",
                     "Iconclass_Code",
                     "Geographical_Keyword",
                     "Vervaardigd_In",

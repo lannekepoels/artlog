@@ -69,8 +69,8 @@ CSV_COLUMN_ORDER = [
     "Search_Margin_Begin", "Search_Margin_End",
     "Genre", "Object_Name", "Medium", "Shape",
     "Height", "Width", "Unit",
-    "Signature_Inscription", "Signature_Location", "Provenance",
-    "Artwork_Number", "Image_Number", "_filename",
+    "Signature_Inscription", "Signature_Location", "Provenance", "Exhibition",
+    "Artwork_Number", "_filename",
     "FullEntryText", "_notes",
     "_id", "_validated", "_flagged", "_original_url", "_crop_url",
 ]
@@ -79,8 +79,7 @@ def ordered_dataframe(records):
     import pandas as pd
     df = pd.DataFrame(records)
     ordered = [c for c in CSV_COLUMN_ORDER if c in df.columns]
-    remaining = [c for c in df.columns if c not in CSV_COLUMN_ORDER]
-    return df[ordered + remaining]
+    return df[ordered]
 
 
 # ─────────────────────────────────────────────
@@ -430,9 +429,9 @@ Shape: Physical shape (e.g. 'liggende rechthoek', 'staande rechthoek', 'rond').
 Height: Height dimension as a number only (e.g. '40').
 Width: Width dimension as a number only (e.g. '50').
 Unit: Unit of measurement (e.g. 'cm', 'mm').
-Image_Number: Image reference number if mentioned.
 Title: Main descriptive title. Replace 'dito', '"', 'als voren', 'idem', 'id.' by the antecedent title.
 Provenance: Ownership history if present (e.g. text after 'Provenance:', 'Herkomst:', or named collectors/auction houses). Copy verbatim.
+Exhibition: Exhibition history if present (e.g. text after 'Exhibited:', 'Tentoongesteld:', or named exhibitions). Copy verbatim.
 Signature_Inscription: How the work is signed or inscribed (e.g. 'signed', 'gesigneerd', 'monogram', 'signed and dated').
 Signature_Location: Where the signature appears on the work. Use standardized English terms: 'lower right', 'lower left', 'upper right', 'upper left', 'lower center', 'upper center'. Map Dutch abbreviations: l.o./l.b. → 'lower left', r.o./r.b. → 'lower right'.
 FullEntryText: The complete unedited raw text of the entry including all line breaks.

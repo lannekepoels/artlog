@@ -167,7 +167,6 @@ class LM_entry(BaseModel):
     Height:               Optional[str] = None
     Width:                Optional[str] = None
     Unit:                 Optional[str] = None
-    Image_Number:         Optional[str] = None
     Title:                str
     Provenance:           Optional[str] = None
     Signature_Inscription: Optional[str] = None
@@ -295,7 +294,6 @@ Shape: Physical shape (e.g. 'liggende rechthoek', 'staande rechthoek', 'rond').
 Height: Height dimension as a number only (e.g. '40').
 Width: Width dimension as a number only (e.g. '50').
 Unit: Unit of measurement (e.g. 'cm', 'mm').
-Image_Number: Image reference number if mentioned.
 Title: Main descriptive title. Replace 'dito', '"', 'als voren', 'idem', 'id.' by the antecedent title.
 Provenance: Ownership history if present (e.g. text after 'Provenance:', 'Herkomst:', or named collectors/auction houses). Copy verbatim.
 Signature_Inscription: How the work is signed or inscribed (e.g. 'signed', 'gesigneerd', 'monogram', 'signed and dated').
