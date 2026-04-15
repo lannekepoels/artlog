@@ -1,4 +1,53 @@
+# Artlog — Local Metadata Extraction Web App for Art Catalogues
 
+Artlog is a local web application that extracts metadata from scanned art catalogue pages using **Google Cloud Vision** and **Gemini**, then lets you review and correct the results in a built-in annotation interface.
+
+The app runs on your own computer and opens in your browser at:
+
+**http://localhost:5001**
+
+---
+
+## What the app does
+
+- Upload a ZIP of catalogue scan images
+- Detect and extract artwork metadata from each page
+- Create one or more records per page when multiple entries are found
+- Show progress in a live processing log
+- Let you review, edit, validate, flag, and manually recrop records
+- Export corrected metadata as CSV
+- Export cropped artwork images as a ZIP
+
+The app also:
+
+- assigns each run a unique job ID
+- ignores hidden folders such as `__MACOSX`
+- creates `BLANK` records for blank pages
+- retries automatically when Gemini hits rate limits
+
+---
+
+## Before you start
+
+You will need:
+
+- **Python 3**
+- a **Google Cloud Vision API key**
+- a **Gemini API key**
+- a **ZIP file** containing catalogue scan images
+
+### Supported image formats
+
+- `.jpg`
+- `.jpeg`
+- `.png`
+- `.tif`
+- `.tiff`
+- `.bmp`
+
+### Recommended Python version
+
+Python **3.11 or newer** is recommended.
 
 
 ## Installation
@@ -347,6 +396,10 @@ Notes for developers
 	•	use_reloader=False is intentional so Flask does not restart when uploaded ZIPs are written, which would otherwise wipe the in-memory job store
 	•	Jobs are stored in memory during runtime
 	•	uploads/ and results/ are created automatically if missing
+
+
+
+
 
 
 
