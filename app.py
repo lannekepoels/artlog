@@ -233,6 +233,35 @@ def export_csv(job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/job/<job_id>/export_xml")
+def export_xml(job_id):
+    """Trigger XML export and return download link."""
+    import xml.etree.ElementTree as ET
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "Not found"}), 404
+
+    try:
+        exportable = [r for r in job["records"] if not r.get("_deleted")]
+        root = ET.Element("records")
+        for r in exportable:
+            rec_el = ET.SubElement(root, "record")
+            for field in CSV_COLUMN_ORDER:
+                val = r.get(field)
+                if val is None:
+                    continue
+                child = ET.SubElement(rec_el, field)
+                child.text = str(val)
+        tree = ET.ElementTree(root)
+        ET.indent(tree, space="  ")
+        xml_path = RESULTS_DIR / f"{job_id}_annotated.xml"
+        tree.write(str(xml_path), encoding="utf-8", xml_declaration=True)
+        return jsonify({"url": f"/results/{job_id}_annotated.xml"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/results/<filename>")
 def download_result(filename):
     return send_from_directory(str(RESULTS_DIR), filename, as_attachment=True)

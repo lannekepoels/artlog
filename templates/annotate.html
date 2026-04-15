@@ -191,7 +191,7 @@
   }
   .sidebar-filter-row span { flex: 1; }
   .sidebar-filter-row select {
-    width: auto;
+    width: 5.5rem;
     padding: 0.2rem 1.4rem 0.2rem 0.4rem;
     font-size: 0.65rem;
     flex-shrink: 0;
@@ -653,6 +653,40 @@
     padding: 2rem;
   }
 
+  /* ── EXPORT METADATA DROPDOWN ── */
+  .export-meta-wrap {
+    position: relative;
+  }
+  .export-meta-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    z-index: 50;
+    min-width: 80px;
+    overflow: hidden;
+  }
+  .export-meta-menu.open { display: block; }
+  .export-meta-menu button {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.9rem;
+    background: none;
+    border: none;
+    text-align: left;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .export-meta-menu button:hover { background: var(--warm); }
+
   /* ── COPY FROM PAGE ── */
   .copy-from-page {
     margin-top: 1.8rem;
@@ -714,7 +748,7 @@
   .copy-page-info {
     cursor: help;
     font-style: normal;
-    font-size: 0.8rem;
+    font-size: 0.62rem;
     color: var(--border);
     flex-shrink: 0;
     line-height: 1;
@@ -727,6 +761,13 @@
     position: absolute;
     bottom: calc(100% + 6px);
     right: 0;
+  }
+  .sidebar-filter-row .copy-page-info:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: auto;
     background: var(--ink);
     color: var(--paper);
     font-family: 'DM Sans', sans-serif;
@@ -774,7 +815,13 @@
 
   <div class="topbar-actions">
     <button class="btn-sm gold" id="export-images-btn">Export Images</button>
-    <button class="btn-sm accent" id="export-btn">Export CSV</button>
+    <div class="export-meta-wrap">
+      <button class="btn-sm accent" id="export-btn">Export Metadata ▾</button>
+      <div class="export-meta-menu" id="export-meta-menu">
+        <button onclick="doExport('csv')">CSV</button>
+        <button onclick="doExport('xml')">XML</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -805,16 +852,24 @@
       </select>
       <div class="sidebar-filters">
         <div class="sidebar-filter-row">
-          <span>Blank pages</span>
-          <select id="filter-blank">
+          <span>Status</span>
+          <select id="filter-status">
+            <option value="all">show all</option>
+            <option value="validated">validated</option>
+            <option value="flagged">flagged</option>
+          </select>
+        </div>
+        <div class="sidebar-filter-row">
+          <span>No detected crop</span>
+          <select id="filter-nocrop">
             <option value="all">show all</option>
             <option value="hide">hide</option>
             <option value="only">only</option>
           </select>
         </div>
         <div class="sidebar-filter-row">
-          <span>No detected crop</span>
-          <select id="filter-nocrop">
+          <span>Blank pages <span class="copy-page-info" data-tooltip="Google Vision may occasionally miss artworks on a page. Please verify before deleting.">ⓘ</span></span>
+          <select id="filter-blank">
             <option value="all">show all</option>
             <option value="hide">hide</option>
             <option value="only">only</option>
@@ -963,10 +1018,11 @@ function fillPct(r) {
 // ── RENDER SIDEBAR ──
 function renderList() {
   const list       = document.getElementById('record-list');
-  const q          = document.getElementById('search-input').value.toLowerCase();
-  const sortVal    = document.getElementById('sort-select').value;
-  const blankMode  = document.getElementById('filter-blank').value;
-  const cropMode   = document.getElementById('filter-nocrop').value;
+  const q           = document.getElementById('search-input').value.toLowerCase();
+  const sortVal     = document.getElementById('sort-select').value;
+  const blankMode   = document.getElementById('filter-blank').value;
+  const cropMode    = document.getElementById('filter-nocrop').value;
+  const statusMode  = document.getElementById('filter-status').value;
 
   filteredIdxs = allRecords
     .map((r, i) => i)
@@ -976,6 +1032,8 @@ function renderList() {
       if (blankMode === 'only' && !r._blank)        return false;
       if (cropMode  === 'hide' && !r._crop_url)     return false;
       if (cropMode  === 'only' && r._crop_url && !r._blank) return false;
+      if (statusMode === 'validated' && !r._validated) return false;
+      if (statusMode === 'flagged'   && !r._flagged)   return false;
       if (!q) return true;
       return (r.Artist || '').toLowerCase().includes(q)
           || (r.Title  || '').toLowerCase().includes(q);
@@ -1097,13 +1155,20 @@ function batchFlag() {
 
 function batchDelete() {
   const n = selectedIds.size;
-  selectedIds.forEach(id => {
-    const rec = allRecords.find(r => r._id === id);
-    if (rec) rec._deleted = true;
-  });
-  selectedIds.clear();
-  renderList();
-  toast(`✕ ${n} entr${n === 1 ? 'y' : 'ies'} marked for deletion — will not be exported`);
+  const selectedRecs = [...selectedIds].map(id => allRecords.find(r => r._id === id)).filter(Boolean);
+  const allAlreadyDeleted = selectedRecs.every(r => r._deleted);
+
+  if (allAlreadyDeleted) {
+    selectedRecs.forEach(rec => { rec._deleted = false; });
+    selectedIds.clear();
+    renderList();
+    toast(`↩ ${n} entr${n === 1 ? 'y' : 'ies'} restored`);
+  } else {
+    selectedRecs.forEach(rec => { rec._deleted = true; });
+    selectedIds.clear();
+    renderList();
+    toast(`✕ ${n} entr${n === 1 ? 'y' : 'ies'} marked for deletion — will not be exported`);
+  }
 }
 
 // ── SELECT RECORD ──
@@ -1294,6 +1359,7 @@ document.getElementById('search-input').addEventListener('input', refilter);
 document.getElementById('sort-select').addEventListener('change', refilter);
 document.getElementById('filter-blank').addEventListener('change', refilter);
 document.getElementById('filter-nocrop').addEventListener('change', refilter);
+document.getElementById('filter-status').addEventListener('change', refilter);
 
 // ── VALIDATE / FLAG ──
 document.getElementById('validate-btn').addEventListener('click', () => {
@@ -1351,25 +1417,34 @@ document.getElementById('export-images-btn').addEventListener('click', async () 
 });
 
 // ── EXPORT ──
-document.getElementById('export-btn').addEventListener('click', async () => {
-  // First save, then download
+document.getElementById('export-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('export-meta-menu').classList.toggle('open');
+});
+document.addEventListener('click', () => {
+  document.getElementById('export-meta-menu').classList.remove('open');
+});
+
+async function doExport(format) {
+  document.getElementById('export-meta-menu').classList.remove('open');
   await fetch(`/api/job/${JOB_ID}/save`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ records: allRecords }),
   });
-  const res  = await fetch(`/api/job/${JOB_ID}/export`);
+  const endpoint = format === 'xml' ? `/api/job/${JOB_ID}/export_xml` : `/api/job/${JOB_ID}/export`;
+  const res  = await fetch(endpoint);
   const data = await res.json();
   if (data.url) {
     const a = document.createElement('a');
     a.href     = data.url;
     a.download = '';
     a.click();
-    toast('✓ CSV downloaded');
+    toast(`✓ ${format.toUpperCase()} downloaded`);
   } else {
     toast('✗ Export failed: ' + (data.error || ''));
   }
-});
+}
 
 // ── UTILS ──
 function esc(str) {
