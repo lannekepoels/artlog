@@ -180,6 +180,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
+    margin-top: 0.6rem;
   }
   .sidebar-filter-row {
     display: flex;
@@ -603,7 +604,7 @@
 
   /* ── MAGNIFIER ── */
   .magnifier-btn {
-    margin-left: auto;
+    margin-left: 0.4rem;
     width: 30px;
     height: 30px;
     border: 1px solid rgba(255,255,255,0.15);
@@ -756,32 +757,89 @@
     transition: color 0.15s;
   }
   .copy-page-info:hover { color: var(--muted); }
-  .copy-page-info:hover::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 6px);
-    right: 0;
-  }
-  .sidebar-filter-row .copy-page-info:hover::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 0;
-    right: auto;
+  /* ── GLOBAL TOOLTIP ── */
+  .global-tooltip {
+    position: fixed;
     background: var(--ink);
     color: var(--paper);
     font-family: 'DM Sans', sans-serif;
     font-size: 0.72rem;
     font-weight: 300;
-    text-transform: none;
-    letter-spacing: 0;
     padding: 0.5rem 0.75rem;
     border-radius: 3px;
     white-space: normal;
     width: 210px;
     line-height: 1.5;
-    z-index: 50;
+    z-index: 9000;
     pointer-events: none;
+    display: none;
+  }
+
+  /* ── IMAGE CONTROLS (rotate / zoom) ── */
+  .img-ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-right: 0.2rem;
+  }
+  .img-ctrl-btn {
+    width: 26px;
+    height: 26px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 3px;
+    background: none;
+    color: rgba(255,255,255,0.55);
+    cursor: pointer;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .img-ctrl-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9); border-color: rgba(255,255,255,0.3); }
+  .img-ctrl-sep {
+    width: 1px;
+    height: 14px;
+    background: rgba(255,255,255,0.15);
+    margin: 0 0.15rem;
+    flex-shrink: 0;
+  }
+
+  /* ── COLLAPSIBLE SIDEBAR FILTERS ── */
+  .search-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .search-row input { flex: 1; }
+  .sidebar-filter-toggle {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    transition: all 0.15s;
+  }
+  .sidebar-filter-toggle:hover { background: var(--warm); border-color: var(--accent); color: var(--ink); }
+  .sidebar-filter-toggle.active { background: var(--warm); border-color: var(--accent); color: var(--accent); }
+  .sidebar-filter-body {
+    overflow: hidden;
+    transition: max-height 0.22s ease, opacity 0.22s ease;
+    max-height: 300px;
+    opacity: 1;
+  }
+  .sidebar-filter-body.collapsed {
+    max-height: 0;
+    opacity: 0;
   }
 </style>
 </head>
@@ -798,6 +856,9 @@
 
 <!-- Magnifier loupe -->
 <div id="magnifier-loupe"><img id="magnifier-img" src="" alt=""></div>
+
+<!-- Global tooltip -->
+<div class="global-tooltip" id="global-tooltip"></div>
 
 <!-- Top bar -->
 <div class="topbar">
@@ -842,38 +903,43 @@
       <button class="batch-btn b-delete" onclick="batchDelete()">✕ Delete</button>
     </div>
     <div class="sidebar-search">
-      <input type="text" id="search-input" placeholder="Filter by artist, title…">
-      <select id="sort-select">
-        <option value="index">Sort: default order</option>
-        <option value="artist">Sort: artist A–Z</option>
-        <option value="title">Sort: title A–Z</option>
-        <option value="fill_desc">Sort: most filled first</option>
-        <option value="fill_asc">Sort: least filled first</option>
-      </select>
-      <div class="sidebar-filters">
-        <div class="sidebar-filter-row">
-          <span>Status</span>
-          <select id="filter-status">
-            <option value="all">show all</option>
-            <option value="validated">validated</option>
-            <option value="flagged">flagged</option>
-          </select>
-        </div>
-        <div class="sidebar-filter-row">
-          <span>No detected crop</span>
-          <select id="filter-nocrop">
-            <option value="all">show all</option>
-            <option value="hide">hide</option>
-            <option value="only">only</option>
-          </select>
-        </div>
-        <div class="sidebar-filter-row">
-          <span>Blank pages <span class="copy-page-info" data-tooltip="Google Vision may occasionally miss artworks on a page. Please verify before deleting.">ⓘ</span></span>
-          <select id="filter-blank">
-            <option value="all">show all</option>
-            <option value="hide">hide</option>
-            <option value="only">only</option>
-          </select>
+      <div class="search-row">
+        <input type="text" id="search-input" placeholder="Filter by artist, title…">
+        <button class="sidebar-filter-toggle" id="sidebar-filter-toggle" title="Show/hide sort &amp; filters">⧉</button>
+      </div>
+      <div class="sidebar-filter-body collapsed" id="sidebar-filter-body">
+        <select id="sort-select">
+          <option value="index">Sort: default order</option>
+          <option value="artist">Sort: artist A–Z</option>
+          <option value="title">Sort: title A–Z</option>
+          <option value="fill_desc">Sort: most filled first</option>
+          <option value="fill_asc">Sort: least filled first</option>
+        </select>
+        <div class="sidebar-filters">
+          <div class="sidebar-filter-row">
+            <span>Status</span>
+            <select id="filter-status">
+              <option value="all">show all</option>
+              <option value="validated">validated</option>
+              <option value="flagged">flagged</option>
+            </select>
+          </div>
+          <div class="sidebar-filter-row">
+            <span>No detected crop</span>
+            <select id="filter-nocrop">
+              <option value="all">show all</option>
+              <option value="hide">hide</option>
+              <option value="only">only</option>
+            </select>
+          </div>
+          <div class="sidebar-filter-row">
+            <span>Blank pages <span class="copy-page-info" data-tooltip="Google Vision may occasionally miss artworks on a page. Please verify before deleting.">ⓘ</span></span>
+            <select id="filter-blank">
+              <option value="all">show all</option>
+              <option value="hide">hide</option>
+              <option value="only">only</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -886,6 +952,15 @@
       <button class="view-toggle active" id="view-crop">Cropped artwork</button>
       <button class="view-toggle" id="view-full">Full page scan</button>
       <button class="view-toggle" id="edit-crop-btn">Edit Crop</button>
+      <div style="flex:1"></div>
+      <div class="img-ctrl-group">
+        <button class="img-ctrl-btn" id="rotate-left-btn" title="Rotate left">↺</button>
+        <button class="img-ctrl-btn" id="rotate-right-btn" title="Rotate right">↻</button>
+        <div class="img-ctrl-sep"></div>
+        <button class="img-ctrl-btn" id="zoom-out-btn" title="Zoom out">−</button>
+        <button class="img-ctrl-btn" id="zoom-in-btn" title="Zoom in">+</button>
+        <button class="img-ctrl-btn" id="zoom-reset-btn" title="Reset zoom &amp; rotation">⊙</button>
+      </div>
       <button class="magnifier-btn" id="magnifier-btn" title="Toggle magnifier">🔍</button>
     </div>
     <div class="crop-toolbar-bar" id="crop-toolbar-bar">
@@ -926,6 +1001,8 @@ let currentIdx    = 0;   // index into filteredIdxs
 let editedFields  = {};  // record._id -> { fieldName: newValue }
 let viewMode      = 'crop';  // 'crop' | 'full'
 let selectedIds   = new Set(); // record._id values checked for batch ops
+let imageRotation = 0;   // degrees, stored per record
+let imageZoom     = 1.0; // view-only, resets on navigation
 
 // ── FIELD DEFINITIONS ──
 const FIELD_GROUPS = [
@@ -1180,6 +1257,10 @@ function selectRecord(filterIdx) {
   if (recIdx === undefined) return;
   const rec = allRecords[recIdx];
 
+  // Load per-record rotation; reset zoom to 1 on every navigation
+  imageRotation = rec._rotation || 0;
+  imageZoom     = 1.0;
+
   updateCounter();
   renderImage(rec);
   renderFields(rec);
@@ -1206,6 +1287,7 @@ function renderImage(rec) {
     img.src = url;
     img.alt = 'Artwork scan';
     vp.insertBefore(img, canvas);
+    applyImageTransform();
   } else {
     const empty = document.createElement('div');
     empty.className = 'image-empty';
@@ -1227,6 +1309,45 @@ document.getElementById('view-full').addEventListener('click', () => {
   document.getElementById('view-crop').classList.remove('active');
   const recIdx = filteredIdxs[currentIdx];
   if (recIdx !== undefined) renderImage(allRecords[recIdx]);
+});
+
+// ── ROTATE / ZOOM ──
+function applyImageTransform() {
+  const img = document.querySelector('#image-viewport img:not(#magnifier-img)');
+  if (!img) return;
+  img.style.transformOrigin = 'center center';
+  img.style.transition      = 'transform 0.2s ease';
+  img.style.transform       = `rotate(${imageRotation}deg) scale(${imageZoom})`;
+}
+
+function saveRotation() {
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx !== undefined) allRecords[recIdx]._rotation = imageRotation;
+}
+
+document.getElementById('rotate-left-btn').addEventListener('click', () => {
+  imageRotation = (imageRotation - 90 + 360) % 360;
+  saveRotation();
+  applyImageTransform();
+});
+document.getElementById('rotate-right-btn').addEventListener('click', () => {
+  imageRotation = (imageRotation + 90) % 360;
+  saveRotation();
+  applyImageTransform();
+});
+document.getElementById('zoom-in-btn').addEventListener('click', () => {
+  imageZoom = Math.min(+(imageZoom + 0.25).toFixed(2), 4.0);
+  applyImageTransform();
+});
+document.getElementById('zoom-out-btn').addEventListener('click', () => {
+  imageZoom = Math.max(+(imageZoom - 0.25).toFixed(2), 0.25);
+  applyImageTransform();
+});
+document.getElementById('zoom-reset-btn').addEventListener('click', () => {
+  imageRotation = 0;
+  imageZoom     = 1.0;
+  saveRotation();
+  applyImageTransform();
 });
 
 // ── FIELDS ──
@@ -1613,6 +1734,41 @@ document.getElementById('edit-crop-btn').addEventListener('click', () => {
 });
 document.getElementById('apply-crop-btn').addEventListener('click', applyCrop);
 document.getElementById('cancel-crop-btn').addEventListener('click', cancelCrop);
+
+// ── GLOBAL TOOLTIP ──
+(function () {
+  const tip = document.getElementById('global-tooltip');
+
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('.copy-page-info');
+    if (!el || !el.dataset.tooltip) return;
+    tip.textContent      = el.dataset.tooltip;
+    tip.style.visibility = 'hidden';
+    tip.style.display    = 'block';
+    const rect    = el.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    let left = rect.left;
+    let top  = rect.top - tipRect.height - 6;
+    if (left + tipRect.width > window.innerWidth - 8) left = window.innerWidth - tipRect.width - 8;
+    if (left < 8) left = 8;
+    if (top  < 8) top  = rect.bottom + 6;
+    tip.style.left       = left + 'px';
+    tip.style.top        = top  + 'px';
+    tip.style.visibility = 'visible';
+  });
+
+  document.addEventListener('mouseout', e => {
+    if (e.target.closest('.copy-page-info')) tip.style.display = 'none';
+  });
+})();
+
+// ── SIDEBAR FILTER COLLAPSE ──
+document.getElementById('sidebar-filter-toggle').addEventListener('click', () => {
+  const body      = document.getElementById('sidebar-filter-body');
+  const btn       = document.getElementById('sidebar-filter-toggle');
+  const collapsed = body.classList.toggle('collapsed');
+  btn.classList.toggle('active', !collapsed);
+});
 
 // ── START ──
 init();

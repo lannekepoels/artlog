@@ -8,7 +8,6 @@ Run with:
 Then open: http://localhost:5001
 """
 
-import os
 import json
 import zipfile
 import uuid
@@ -287,36 +286,54 @@ def export_images(job_id):
 
     work_dir = UPLOAD_DIR / job_id
 
-    # Group crop URLs by original filename to handle numbering
-    # Only skip records the user has explicitly deleted — blank pages are included
-    groups = defaultdict(list)
+    # Build ordered list of (orig_fname, crop_url, rotation) — skip deleted records
+    entries = []
     for rec in job["records"]:
         if rec.get("_deleted"):
             continue
-        orig = rec.get("_filename", "")
+        orig     = rec.get("_filename", "")
         crop_url = rec.get("_crop_url", "") or rec.get("_original_url", "")
+        rotation = int(rec.get("_rotation") or 0)
         if orig and crop_url:
-            groups[orig].append(crop_url)
+            entries.append((orig, crop_url, rotation))
+
+    # Count how many crops each original file contributes (for numbering)
+    orig_counts = defaultdict(int)
+    for orig, _, _ in entries:
+        orig_counts[orig] += 1
+    orig_seen = defaultdict(int)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for orig_fname, crop_urls in groups.items():
+        for orig_fname, url, rotation in entries:
             stem = Path(orig_fname).stem
-            for i, url in enumerate(crop_urls):
-                # Strip cache-bust query param and resolve to local path
-                rel = url.split("?")[0].replace(f"/image/{job_id}/", "")
-                img_file = work_dir / rel
-                if not img_file.exists():
-                    # Fall back to the original page scan
-                    matches = list((work_dir / "images").rglob(orig_fname))
-                    if not matches:
-                        continue
-                    img_file = matches[0]
+            rel  = url.split("?")[0].replace(f"/image/{job_id}/", "")
+            img_file = work_dir / rel
+            if not img_file.exists():
+                matches = list((work_dir / "images").rglob(orig_fname))
+                if not matches:
+                    continue
+                img_file = matches[0]
 
-                if len(crop_urls) == 1:
-                    zip_name = f"{stem}_crop.jpg"
-                else:
-                    zip_name = f"{stem}_crop_{i + 1}.jpg"
+            orig_seen[orig_fname] += 1
+            if orig_counts[orig_fname] == 1:
+                zip_name = f"{stem}_crop.jpg"
+            else:
+                zip_name = f"{stem}_crop_{orig_seen[orig_fname]}.jpg"
+
+            if rotation != 0:
+                from PIL import Image as PilImage
+                import io as _io
+                with PilImage.open(str(img_file)) as pil_img:
+                    pil_img.load()
+                    if pil_img.mode not in ("RGB", "L"):
+                        pil_img = pil_img.convert("RGB")
+                    # CSS rotate is clockwise; PIL rotate() is counter-clockwise — negate
+                    pil_img = pil_img.rotate(-rotation, expand=True)
+                    img_bytes = _io.BytesIO()
+                    pil_img.save(img_bytes, format="JPEG", quality=95)
+                zf.writestr(zip_name, img_bytes.getvalue())
+            else:
                 zf.write(str(img_file), zip_name)
 
     buf.seek(0)
