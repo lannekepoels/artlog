@@ -1,4 +1,53 @@
+# Artlog — Local Metadata Extraction Web App for Art Catalogues
 
+Artlog is a local web application that extracts metadata from scanned art catalogue pages using **Google Cloud Vision** and **Gemini**, then lets you review and correct the results in a built-in annotation interface.
+
+The app runs on your own computer and opens in your browser at:
+
+**http://localhost:5001**
+
+---
+
+## What the app does
+
+- Upload a ZIP of catalogue scan images
+- Detect and extract artwork metadata from each page
+- Create one or more records per page when multiple entries are found
+- Show progress in a live processing log
+- Let you review, edit, validate, flag, and manually recrop records
+- Export corrected metadata as CSV
+- Export cropped artwork images as a ZIP
+
+The app also:
+
+- assigns each run a unique job ID
+- ignores hidden folders such as `__MACOSX`
+- creates `BLANK` records for blank pages
+- retries automatically when Gemini hits rate limits
+
+---
+
+## Before you start
+
+You will need:
+
+- **Python 3**
+- a **Google Cloud Vision API key**
+- a **Gemini API key**
+- a **ZIP file** containing catalogue scan images
+
+### Supported image formats
+
+- `.jpg`
+- `.jpeg`
+- `.png`
+- `.tif`
+- `.tiff`
+- `.bmp`
+
+### Recommended Python version
+
+Python **3.11 or newer** is recommended.
 
 
 ## Installation
@@ -155,7 +204,16 @@ Right panel
 	•	editable metadata fields
 	•	click directly into a field to correct it
 
+### Common Actions
 
+| Action | How |
+|---|---|
+| Edit a field | Click into it and type |
+| Mark validated | Click **Mark Validated** or press `V` |
+| Flag for review | Click **Flag** |
+| Navigate records | Use **Prev / Next** or `← →` arrow keys |
+| Search / filter | Use the search box on the left panel |
+| Manually fix crop | Use the crop tool to redraw the artwork region |
 
 Saving and exporting
 
@@ -282,6 +340,14 @@ Evaluation workflow
 
 The annotation interface can also be used for evaluation and scoring.
 
+### Scoring Scale
+
+| Score | Meaning |
+|---|---|
+| 2 | Correct — extracted value matches the source text exactly (or within acceptable variation) |
+| 1 | Partial — value is present but incomplete or slightly incorrect |
+| 0 | Incorrect / Missing — value is wrong, hallucinated, or not extracted |
+
 Recommended workflow:
 	1.	Review extracted records in the annotation interface
 	2.	Overwrite incorrect values directly in the metadata fields
@@ -332,73 +398,11 @@ Notes for developers
 	•	uploads/ and results/ are created automatically if missing
 
 
-# Artlog — Local Metadata Extraction Web App for Art Catalogues
 
-Artlog is a local web application that extracts metadata from scanned art catalogue pages using **Google Cloud Vision** and **Gemini**, then lets you review and correct the results in a built-in annotation interface.
 
-The app runs on your own computer and opens in your browser at:
 
-**http://localhost:5001**
 
----
 
-## What the app does
-
-- Upload a ZIP of catalogue scan images
-- Detect and extract artwork metadata from each page
-- Create one or more records per page when multiple entries are found
-- Show progress in a live processing log
-- Let you review, edit, validate, flag, and manually recrop records
-- Export corrected metadata as CSV
-- Export cropped artwork images as a ZIP
-
-The app also:
-
-- assigns each run a unique job ID
-- ignores hidden folders such as `__MACOSX`
-- creates `BLANK` records for blank pages
-- retries automatically when Gemini hits rate limits
-
----
-
-## Before you start
-
-You will need:
-
-- **Python 3**
-- a **Google Cloud Vision API key**
-- a **Gemini API key**
-- a **ZIP file** containing catalogue scan images
-
-### Supported image formats
-
-- `.jpg`
-- `.jpeg`
-- `.png`
-- `.tif`
-- `.tiff`
-- `.bmp`
-
-### Recommended Python version
-
-Python **3.11 or newer** is recommended.
-
----
-
-## Project structure
-
-```text
-artlog/
-├── app.py
-├── requirements.txt
-├── README.md
-├── templates/
-│   ├── index.html
-│   └── annotate.html
-├── uploads/         # created automatically
-├── results/         # created automatically
-├── data/            # optional local data, not included in repo
-└── raw_scripts/     # earlier standalone scripts kept for reference
 
 
 
