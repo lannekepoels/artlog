@@ -1315,9 +1315,36 @@ document.getElementById('view-full').addEventListener('click', () => {
 function applyImageTransform() {
   const img = document.querySelector('#image-viewport img:not(#magnifier-img)');
   if (!img) return;
+  const vp = document.getElementById('image-viewport');
+
   img.style.transformOrigin = 'center center';
   img.style.transition      = 'transform 0.2s ease';
-  img.style.transform       = `rotate(${imageRotation}deg) scale(${imageZoom})`;
+  img.style.transform       = `rotate(${imageRotation}deg)`;
+
+  if (imageZoom === 1.0) {
+    // Restore natural CSS fit
+    img.style.width     = '';
+    img.style.height    = '';
+    img.style.maxWidth  = '';
+    img.style.maxHeight = '';
+    vp.style.alignItems     = '';
+    vp.style.justifyContent = '';
+  } else {
+    // Compute the "fit at zoom=1" size from natural dimensions + available space
+    const pad  = 48; // 1.5rem padding each side (24px × 2)
+    const vpW  = vp.clientWidth  - pad;
+    const vpH  = vp.clientHeight - pad;
+    const natW = img.naturalWidth  || vpW;
+    const natH = img.naturalHeight || vpH;
+    const ratio = Math.min(vpW / natW, vpH / natH);
+    img.style.width     = Math.round(natW * ratio * imageZoom) + 'px';
+    img.style.height    = Math.round(natH * ratio * imageZoom) + 'px';
+    img.style.maxWidth  = 'none';
+    img.style.maxHeight = 'none';
+    // Anchor to top-left so the full zoomed image is reachable by scrolling
+    vp.style.alignItems     = 'flex-start';
+    vp.style.justifyContent = 'flex-start';
+  }
 }
 
 function saveRotation() {
