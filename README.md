@@ -1,4 +1,4 @@
-# 🖼️ Artlog — Web App
+# 🖼️ Sinopia — Web App
 
 A local web application that automatically extracts metadata from scanned art catalogue pages using Google Cloud Vision and Gemini AI, and lets you review and correct the results through a built-in annotation interface.
 
