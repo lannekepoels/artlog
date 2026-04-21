@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>artlog</title>
+<title>Sinopia</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;600;700&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --ink:     #1a1410;
@@ -45,7 +45,7 @@
     z-index: 10;
   }
   .topbar h1 {
-    font-family: 'Lora', serif;
+    font-family: 'Shippori Mincho', serif;
     font-size: 1.15rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -863,7 +863,7 @@
 <!-- Top bar -->
 <div class="topbar">
   <a href="/" style="text-decoration:none;color:inherit;">
-    <h1>artlog</h1>
+    <h1>Sinopia</h1>
   </a>
   <span class="sep">/</span>
   <span style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted)" id="job-label">Loading…</span>
@@ -920,6 +920,7 @@
             <span>Status</span>
             <select id="filter-status">
               <option value="all">show all</option>
+              <option value="pending">pending</option>
               <option value="validated">validated</option>
               <option value="flagged">flagged</option>
             </select>
@@ -1109,8 +1110,9 @@ function renderList() {
       if (blankMode === 'only' && !r._blank)        return false;
       if (cropMode  === 'hide' && !r._crop_url)     return false;
       if (cropMode  === 'only' && r._crop_url && !r._blank) return false;
-      if (statusMode === 'validated' && !r._validated) return false;
-      if (statusMode === 'flagged'   && !r._flagged)   return false;
+      if (statusMode === 'validated' && !r._validated)              return false;
+      if (statusMode === 'flagged'   && !r._flagged)               return false;
+      if (statusMode === 'pending'   && (r._validated || r._flagged)) return false;
       if (!q) return true;
       return (r.Artist || '').toLowerCase().includes(q)
           || (r.Title  || '').toLowerCase().includes(q);
@@ -1152,7 +1154,7 @@ function renderList() {
              alt="">
         <div class="record-info">
           <div class="ri-title">${esc(r.Artist || 'Unknown artist')} — ${esc(r.Title || '(no title)')}</div>
-          <div class="ri-sub">${esc(r._filename || '')} · ${esc(r.Genre || '')}</div>
+          <div class="ri-sub">P${fi + 1} ·${esc(r._filename || '')} · ${esc(r.Genre || '')}</div>
         </div>
         <div class="record-badge ${badgeClass}"></div>
       </div>`;
@@ -1438,6 +1440,20 @@ function renderFields(rec) {
   document.getElementById('copy-page-num').addEventListener('keydown', e => {
     if (e.key === 'Enter') copyFromPage(parseInt(e.target.value, 10));
   });
+
+  // ── Duplicate record section ──
+  const dupSection = document.createElement('div');
+  dupSection.className = 'copy-from-page';
+  dupSection.style.marginTop = '0.7rem';
+  dupSection.innerHTML = `
+    <div class="copy-from-page-title">Duplicate this record</div>
+    <div class="copy-page-row">
+      <button class="copy-page-btn" id="duplicate-record-btn" style="flex:1">Duplicate record</button>
+    </div>
+  `;
+  body.appendChild(dupSection);
+
+  document.getElementById('duplicate-record-btn').addEventListener('click', duplicateRecord);
 }
 
 function renderField(rec, f) {
@@ -1547,6 +1563,26 @@ function copyFromPage(pageNum) {
   });
   renderFields(target);
   toast(`✓ Copied all fields from page ${pageNum}`);
+}
+
+// ── DUPLICATE RECORD ──
+function duplicateRecord() {
+  const recIdx = filteredIdxs[currentIdx];
+  if (recIdx === undefined) return;
+  const source = allRecords[recIdx];
+  const dupe   = Object.assign({}, source, {
+    _id:        'dup_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    _validated: false,
+    _flagged:   false,
+    _deleted:   false,
+  });
+  // Insert immediately after the source record in allRecords
+  allRecords.splice(recIdx + 1, 0, dupe);
+  renderList();
+  // Navigate to the new duplicate
+  const newFi = filteredIdxs.indexOf(recIdx + 1);
+  if (newFi !== -1) selectRecord(newFi);
+  toast('✓ Record duplicated');
 }
 
 // ── EXPORT IMAGES ──
