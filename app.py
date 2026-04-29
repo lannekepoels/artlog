@@ -122,26 +122,36 @@ def upload():
     work_dir = UPLOAD_DIR / job_id
     work_dir.mkdir(parents=True)
 
-    # Save and extract ZIP
-    zip_path = work_dir / "upload.zip"
-    uploaded.save(str(zip_path))
+    supported = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+    images_dir = work_dir / "images"
+    images_dir.mkdir()
 
-    try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(str(work_dir / "images"))
-    except zipfile.BadZipFile:
-        return jsonify({"error": "Uploaded file is not a valid ZIP archive"}), 400
+    fname_lower = uploaded.filename.lower()
+    ext = Path(fname_lower).suffix
+
+    if ext in supported:
+        # Single image upload — save directly
+        dest = images_dir / Path(uploaded.filename).name
+        uploaded.save(str(dest))
+    else:
+        # ZIP upload — save and extract
+        zip_path = work_dir / "upload.zip"
+        uploaded.save(str(zip_path))
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(str(images_dir))
+        except zipfile.BadZipFile:
+            return jsonify({"error": "Uploaded file is not a valid ZIP archive"}), 400
 
     # Collect image files (skip __MACOSX and hidden files)
-    supported = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
     image_files = sorted([
-        p for p in (work_dir / "images").rglob("*")
+        p for p in images_dir.rglob("*")
         if p.suffix.lower() in supported
         and not any(part.startswith("__") or part.startswith(".") for part in p.parts)
     ])
 
     if not image_files:
-        return jsonify({"error": "No supported image files found in ZIP"}), 400
+        return jsonify({"error": "No supported image files found"}), 400
 
     with JOBS_LOCK:
         JOBS[job_id] = {

@@ -363,12 +363,12 @@
       <input type="password" id="gemini-key" placeholder="AIza..." autocomplete="off">
     </div>
     <div class="field">
-      <label>Upload ZIP of catalogue images</label>
+      <label>Upload catalogue images</label>
       <div class="drop-zone" id="drop-zone">
-        <input type="file" id="file-input" accept=".zip">
+        <input type="file" id="file-input" accept=".zip,.jpg,.jpeg,.png,.tif,.tiff">
         <div class="icon">📁</div>
         <div class="label"><strong>Click to browse</strong> or drag &amp; drop</div>
-        <div class="sub">.zip archive containing .jpg / .png / .tif images</div>
+        <div class="sub">.zip archive or a single .jpg / .png / .tif image</div>
       </div>
     </div>
     <button class="btn-primary" id="run-btn" disabled>Run Extraction Pipeline</button>
@@ -485,7 +485,8 @@
     e.preventDefault();
     dropZone.classList.remove('drag-over');
     const f = e.dataTransfer.files[0];
-    if (f && f.name.endsWith('.zip')) {
+    const allowed = ['.zip', '.jpg', '.jpeg', '.png', '.tif', '.tiff'];
+    if (f && allowed.some(ext => f.name.toLowerCase().endsWith(ext))) {
       selectedFile = f;
       dropZone.classList.add('file-selected');
       dropZone.querySelector('.label').innerHTML = `<strong>${f.name}</strong>`;
@@ -504,7 +505,7 @@
     runBtn.disabled = true;
     runBtn.textContent = 'Uploading…';
     progressSec.classList.add('visible');
-    progressLabel.textContent = 'Uploading ZIP…';
+    progressLabel.textContent = 'Uploading…';
     patienceMsg.classList.add('visible');
     patienceTitle.textContent = 'Uploading — please wait';
     patienceTip.textContent = '';
